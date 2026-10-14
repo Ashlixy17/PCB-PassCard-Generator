@@ -263,7 +263,7 @@ export const PassEditorForm: React.FC<PassEditorFormProps> = ({
               className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition"
             >
               <Sliders className="w-3.5 h-3.5" />
-              微调图标位置与尺寸
+              单独调整阵营 Logo
             </button>
           </div>
 
@@ -336,7 +336,7 @@ export const PassEditorForm: React.FC<PassEditorFormProps> = ({
                   {customIconUrl ? '已上传自定义阵营图标' : `阵营图标: ${info.faction || '罗德岛'}`}
                 </span>
                 <span className="block text-[11px] text-slate-400">
-                  {customIconUrl ? '已加载自定义 PNG 图标 overlay' : `${getFactionEnText(info.faction)} 矢量水印层`}
+                  {customIconUrl ? '独立 PNG 图标，保留原始细节' : `${getFactionEnText(info.faction)} 独立图标`}
                 </span>
               </div>
             </div>
@@ -388,28 +388,9 @@ export const PassEditorForm: React.FC<PassEditorFormProps> = ({
           {/* Card Base Color Picker */}
           <div className="space-y-1.5">
             <label className="block text-xs text-slate-400 flex items-center gap-1">
-              <Palette className="w-4 h-4 text-purple-400" /> 卡面基础色彩:
+              <Palette className="w-4 h-4 text-purple-400" /> PCB 配色与分层:
             </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="color"
-                value={info.base_color || info.back_color || '#003466'}
-                onChange={(e) => {
-                  const newColor = e.target.value;
-                  onInfoChange({ ...info, base_color: newColor, back_color: newColor });
-                  onE1OptsChange({ ...e1Opts, frontColor: newColor });
-                }}
-                className="w-10 h-10 rounded-lg cursor-pointer bg-transparent border border-slate-700"
-              />
-              <div className="flex flex-col">
-                <span className="font-mono text-xs text-slate-300">
-                  {info.base_color || info.back_color || '#003466'}
-                </span>
-                <span className="text-[11px] text-slate-400">
-                  用于精一底板、条形码/文字及背面剪影
-                </span>
-              </div>
-            </div>
+            <p className="text-xs text-slate-400 py-2">阻焊颜色可直接在右侧预览修改；细节、材质和线宽在“详细调整”中设置。</p>
           </div>
         </div>
 

@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {Archive} from 'lucide-react';
-import { CharacterRecord, E1Options, PassCardInfo, PreviewKind } from './types';
+import { CharacterRecord, E1Options, PassCardInfo } from './types';
+import {PcbSettings,PCB_DEFAULTS,normalizePcbSettings} from './types/pcb';
 import { DEFAULT_CHARACTERS } from './data/defaultCharacters';
 import { CharacterDatabasePanel } from './components/CharacterDatabasePanel';
 import { PassEditorForm } from './components/PassEditorForm';
-import { PassPreviewCanvas } from './components/PassPreviewCanvas';
+import { PcbPreview } from './components/PcbPreview';
 import { ImageCropperModal } from './components/ImageCropperModal';
-import { IconAdjustModal } from './components/IconAdjustModal';
-import { BatchExportModal } from './components/BatchExportModal';
+import { PcbExportModal } from './components/PcbExportModal';
 
 const LOCAL_STORAGE_DB_KEY = 'PASS_CARD_GEN_CHARACTERS_V2';
+const PCB_SETTINGS_KEY = 'PASS_CARD_GEN_PCB_SETTINGS_V1';
 
 export default function App() {
   // 1. Characters Database State (Loads all 427 characters from characters.json)
@@ -68,12 +69,18 @@ export default function App() {
   const [cutoutPhotoUrl, setCutoutPhotoUrl] = useState<string>('');
   const [customIconUrl, setCustomIconUrl] = useState<string>('');
 
-  // 5. Active Preview Kind
-  const [activeKind, setActiveKind] = useState<PreviewKind>('front');
+  const [pcbSettings,setPcbSettings]=useState<PcbSettings>(()=>{
+    try{return normalizePcbSettings(JSON.parse(localStorage.getItem(PCB_SETTINGS_KEY)||'null'));}
+    catch{return {...PCB_DEFAULTS,overrides:{}};}
+  });
+  const [pcbDetailRequest,setPcbDetailRequest]=useState(0);
+  useEffect(()=>{
+    try{localStorage.setItem(PCB_SETTINGS_KEY,JSON.stringify(pcbSettings));}
+    catch(error){console.warn('PCB 参数未能保存到本地',error);}
+  },[pcbSettings]);
 
   // 6. Modals
   const [isCropModalOpen, setIsCropModalOpen] = useState<boolean>(false);
-  const [isIconAdjustModalOpen, setIsIconAdjustModalOpen] = useState<boolean>(false);
   const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState<boolean>(false);
 
   // Save character DB to localStorage on changes
@@ -242,20 +249,19 @@ export default function App() {
               onCustomIconUpload={handleCustomIconUpload}
               onClearCustomIcon={() => setCustomIconUrl('')}
               onOpenCropModal={() => setIsCropModalOpen(true)}
-              onOpenIconAdjustModal={() => setIsIconAdjustModalOpen(true)}
+              onOpenIconAdjustModal={() => setPcbDetailRequest(value=>value+1)}
             />
           </div>
 
           {/* Right Column: Live High-Res Canvas Preview (5 cols) */}
-          <div className="lg:col-span-5 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] overflow-y-auto pb-8">
-            <PassPreviewCanvas
-              info={info}
-              e1Opts={e1Opts}
-              frontPhotoUrl={frontPhotoUrl}
-              cutoutPhotoUrl={cutoutPhotoUrl}
-              customIconUrl={customIconUrl}
-              activeKind={activeKind}
-              onSelectKind={setActiveKind}
+          <div className="pcb-preview-column lg:col-span-5 lg:sticky lg:top-20">
+            <PcbPreview
+              inputs={{info,e1Opts,frontPhotoUrl,cutoutPhotoUrl,customIconUrl}}
+              settings={pcbSettings}
+              onChange={setPcbSettings}
+              onE1OptsChange={setE1Opts}
+              detailRequest={pcbDetailRequest}
+              onExport={()=>setIsBatchExportModalOpen(true)}
             />
           </div>
         </div>
@@ -273,24 +279,7 @@ export default function App() {
         }}
       />
 
-      <IconAdjustModal
-        isOpen={isIconAdjustModalOpen}
-        onClose={() => setIsIconAdjustModalOpen(false)}
-        info={info}
-        e1Opts={e1Opts}
-        frontPhotoUrl={frontPhotoUrl}
-        customIconUrl={customIconUrl}
-        onApply={(x, y, scale) => {
-          setE1Opts({
-            ...e1Opts,
-            iconX: x,
-            iconY: y,
-            iconScale: scale,
-          });
-        }}
-      />
-
-      <BatchExportModal
+      <PcbExportModal
         isOpen={isBatchExportModalOpen}
         onClose={() => setIsBatchExportModalOpen(false)}
         currentInfo={info}
@@ -298,6 +287,7 @@ export default function App() {
         frontPhotoUrl={frontPhotoUrl}
         cutoutPhotoUrl={cutoutPhotoUrl}
         customIconUrl={customIconUrl}
+        pcbSettings={pcbSettings}
       />
     </div>
   );
