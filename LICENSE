@@ -1,5 +1,25 @@
+PCB-PassCard-Generator
+
+License Scope / 许可适用范围
+
+The MIT License below applies to original contributions to
+PCB-PassCard-Generator and to portions already licensed under MIT by their
+respective copyright holders. Third-party code, dependencies, fonts, character
+data, template assets, images, and trademarks remain subject to their own
+licenses and rights. This file does not grant additional rights in such
+material or supply authorization where none has been granted.
+See THIRD_PARTY_NOTICES.md for source information and licensing notes.
+
+以下 MIT License 适用于 PCB-PassCard-Generator 的原创贡献，以及已由相应
+权利人按 MIT 许可授权的部分。第三方代码、依赖、字体、角色数据、模板素材、
+图片和商标仍受各自的许可与权利约束；本文件不为这些内容授予额外权利，也不
+替代尚未取得的授权。具体来源与许可说明见 THIRD_PARTY_NOTICES.md。
+
+---
+
 MIT License
 
+Copyright (c) 2026 PCB-PassCard-Generator contributors
 Copyright (c) 2026 Laplac_heroin
 Copyright (c) 2026 PCB_lightgraph Portable contributors
 
@@ -20,3 +40,63 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Supplemental Project Notice / 项目补充声明
+
+This notice describes the intended use and responsibility boundaries of
+PCB-PassCard-Generator. It adds no conditions to, and does not restrict,
+the permissions granted under the MIT License for material within its scope.
+
+本补充声明用于说明 PCB-PassCard-Generator 的用途与责任边界，不为 MIT
+许可适用范围内的内容增加许可条件，也不限制该许可授予的权利。
+
+1. Intended use / 使用范围
+   This browser-based tool designs character pass cards and exports front,
+   back, white-ink, and cutting-outline artwork. It also provides 3D previews,
+   rotating GIF exports, and AR previews. It is intended primarily for
+   learning, research, and personal creative work; this statement of intended
+   use is not a restriction on commercial use permitted by the MIT License.
+   本工具用于在浏览器中设计角色通行证，导出正面、背面、白墨和刀模图纸，
+   并提供 3D 预览、旋转 GIF 导出与 AR 预览。项目主要面向学习、研究与个人
+   创作；此用途说明不限制 MIT 许可允许的商业使用。
+
+2. Source material and output rights / 素材与输出内容的权利
+   The tool does not verify or clear rights in bundled or user-supplied
+   material. Users must obtain any permissions required for character art,
+   illustrations, photographs, logos, fonts, and other material they use.
+   Exporting artwork does not transfer third-party rights or establish
+   permission to publish, manufacture, or sell products containing it.
+   本工具不会核实或代为取得内置素材及用户上传素材的授权。使用角色形象、
+   插画、照片、标志、字体等内容时，使用者应自行确认并取得所需授权。
+   导出图纸不转移第三方权利，也不意味着已获得发布、生产或销售相关产品的
+   授权；使用者应对所使用素材及输出内容的合法使用负责。
+
+3. Portraits and privacy / 肖像与隐私
+   Users must obtain appropriate authorization before processing another
+   person's portrait, private information, or sensitive content, and must
+   comply with applicable privacy and data-protection requirements.
+   处理涉及他人肖像、隐私或敏感内容的图像时，使用者应取得适当授权，
+   并遵守适用的隐私及个人信息保护要求。
+
+4. Production and commercial use / 生产与商业使用
+   Users who produce or sell PCB, acrylic, or other pass-card products are
+   responsible for intellectual-property permissions, manufacturing
+   feasibility, dimensions, layer alignment, white-ink and cutting settings,
+   material selection, product quality, safety, and business decisions.
+   Previews and exported artwork are not manufacturing approval or a
+   guarantee of the appearance or performance of a physical product.
+   使用本工具制作或销售 PCB、亚克力等通行证周边产品时，使用者应自行确认
+   知识产权授权、生产可行性、尺寸、图层对齐、白墨与刀模设置、材料选择及
+   产品质量与安全，并对相关经营行为负责。预览效果和导出图纸不构成生产
+   验收，也不保证实物的外观或性能。
+
+5. No warranty / 按现状提供
+   The software is provided "AS IS" under the MIT License. To the extent
+   permitted by applicable law, the authors and copyright holders make no
+   additional warranty regarding rendering accuracy, export results, 3D or
+   AR previews, browser or device compatibility, or manufacturing suitability.
+   本软件按上述 MIT License 所述的“现状”提供。在适用法律允许的范围内，
+   作者及版权持有人不对渲染精度、导出结果、3D 或 AR 预览、浏览器与设备
+   兼容性或生产适用性作出额外担保。
