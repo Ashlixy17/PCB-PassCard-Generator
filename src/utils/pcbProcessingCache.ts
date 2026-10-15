@@ -7,12 +7,16 @@ const DRAFT_SCALE = .4;
 function optionsKey(value: PcbLayerSettings): string {
   if (!value.enabled) return 'hidden';
   if (['mask', 'copper', 'fr4'].includes(value.mode)) return value.mode;
-  const base = [value.mode, value.edgeExpansion];
+  const base: (string | number)[] = [value.mode, value.edgeExpansion];
   if (value.mode !== 'auto' && !value.preserveDetails) return base.join(':');
-  return base.concat([
+  const signature = base.concat([
     value.smoothing, value.brightness, value.contrast, Number(value.invert), Number(value.darkInk),
-    ...(value.mode === 'auto' ? [value.silkThreshold, value.maskThreshold] : [value.detailThreshold]),
-  ]).join(':');
+    ...(value.mode === 'auto' ? [value.processingMode, value.silkThreshold] : [value.detailThreshold]),
+  ]);
+  if (value.mode === 'auto') signature.push(...(value.processingMode === 'color'
+    ? [value.finish, value.metalHue, value.hueTolerance, value.saturationThreshold, value.metalBrightness, value.silverThreshold, value.copperThreshold, Number(value.maskIsLight), Number(value.bareEnabled), value.bareMethod, value.bareColor, value.bareSimilarity, value.bareGrayMin, value.bareGrayMax]
+    : [value.maskThreshold]));
+  return signature.join(':');
 }
 
 function resizePixels(source: RasterPixels, scale: number): RasterPixels {

@@ -2,11 +2,12 @@ import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {ArrowLeft,Download,RotateCcw,SlidersHorizontal} from 'lucide-react';
 import {E1Options} from '../types';
-import {PcbSettings,PcbLayerSettings,PcbSide,PcbView,PCB_DEFAULTS,PCB_VIEW_LABELS} from '../types/pcb';
+import {PcbSettings,PcbLayerSettings,PcbSide,PcbView,PcbFinish,PCB_FINISH_LABELS,PCB_COLOR_DEFAULTS,getPcbViews,getPcbViewLabel,getPcbModeLabel,getPcbParameters,patchPcbSettings,resetPcbParameters} from '../types/pcb';
 import {PcbScene,getPcbLayerSettings,pcbLayerKey} from '../utils/pcbProcessing';
 import {PcbFrames} from '../types/pcbWorker';
 import {PcbCanvas} from './PcbCanvas';
 import {PcbColorPicker} from './PcbColorPicker';
+import {PcbModeSwitch} from './PcbModeSwitch';
 
 interface Props {
   open:boolean;onClose:()=>void;side:PcbSide;onSideChange:(side:PcbSide)=>void;
@@ -23,6 +24,17 @@ const processingFields=[
   {key:'edgeExpansion',label:'边缘线条加粗',min:0,max:4,step:1,unit:' px'},
   {key:'smoothing',label:'抗锯齿平滑度',min:0,max:3,step:1},
 ] as const;
+const colorFields=[
+  {key:'metalHue',label:'金属目标色相',min:0,max:359,unit:'°'},
+  {key:'hueTolerance',label:'金属色相容差',min:0,max:90,unit:'°'},
+  {key:'saturationThreshold',label:'金属最低饱和度',min:0,max:100,unit:'%'},
+  {key:'metalBrightness',label:'金属最低亮度',min:0,max:255},
+  {key:'silverThreshold',label:'银色亮度阈值',min:0,max:255},
+  {key:'silkThreshold',label:'彩色识别丝印阈值',min:0,max:255},
+  {key:'copperThreshold',label:'阻焊下覆铜阈值',min:0,max:255},
+  {key:'edgeExpansion',label:'边缘线条加粗',min:0,max:4,unit:' px'},
+  {key:'smoothing',label:'抗锯齿平滑度',min:0,max:3},
+] as const;
 
 function Range({label,value,min,max,step=1,unit='',onChange,disabled=false}:{key?:string;label:string;value:number;min:number;max:number;step?:number;unit?:string;onChange:(value:number)=>void;disabled?:boolean}) {
   return <label className={`pcb-range ${disabled?'pcb-control-disabled':''}`}>
@@ -36,6 +48,7 @@ export function PcbAdjustModal(props:Props) {
   const [selected,setSelected]=useState('global');
   const [view,setView]=useState<PcbView>('appearance');
   const dialog=useRef<HTMLDivElement|null>(null);
+  useEffect(()=>setView('appearance'),[settings.processingMode]);
   useEffect(()=>{
     if(!open)return;
     setSelected(props.focusLayer||'global');setView('appearance');
@@ -60,15 +73,13 @@ export function PcbAdjustModal(props:Props) {
   if(!open)return null;
   const scene=scenes?.[side];
   const layer=scene?.layers.find(item=>item.id===selected);
-  const values=layer?getPcbLayerSettings(settings,side,layer):settings;
+  const colorMode=settings.processingMode==='color';
+  const values=(layer?getPcbLayerSettings(settings,side,layer):{...PCB_COLOR_DEFAULTS,...getPcbParameters(settings)}) as PcbLayerSettings;
   const update=(patch:Partial<PcbLayerSettings>)=>{
-    if(!layer){onChange({...settings,...patch});return;}
-    const key=pcbLayerKey(side,layer.id);
-    onChange({...settings,overrides:{...settings.overrides,[key]:{...settings.overrides[key],...patch}}});
+    onChange(patchPcbSettings(settings,patch,layer?pcbLayerKey(side,layer.id):undefined));
   };
   const reset=()=>{
-    if(!layer){onChange({...settings,silkThreshold:PCB_DEFAULTS.silkThreshold,maskThreshold:PCB_DEFAULTS.maskThreshold,edgeExpansion:0,smoothing:0});return;}
-    const overrides={...settings.overrides};delete overrides[pcbLayerKey(side,layer.id)];onChange({...settings,overrides});
+    onChange(resetPcbParameters(settings,layer?pcbLayerKey(side,layer.id):undefined));
   };
   const local=layer?values as PcbLayerSettings:null;
   return createPortal(<div className="passcard-app pcb-adjust-overlay">
@@ -85,32 +96,42 @@ export function PcbAdjustModal(props:Props) {
       }
     }}>
       <header className="pcb-adjust-header">
-        <div><h2 id="pcb-adjust-title"><SlidersHorizontal size={18}/>PCB 详细调整</h2><p>按素材单独调整，保留图标内部结构。</p></div>
+        <div><h2 id="pcb-adjust-title"><SlidersHorizontal size={18}/>PCB 详细调整</h2><p>{getPcbModeLabel(settings)} · 参数按工艺分别保存</p></div>
         <button type="button" className="pcg-primary" onClick={onClose} autoFocus><ArrowLeft size={16}/>完成调整</button>
       </header>
       <div className="pcb-adjust-layout">
         <aside className="pcb-adjust-controls">
+          <PcbModeSwitch mode={settings.processingMode} onChange={processingMode=>{props.onInteractionChange(false);onChange({...settings,processingMode});}}/>
           <label className="pcb-field">调整对象
             <select aria-label="调整对象" value={selected} onChange={event=>setSelected(event.target.value)}>
               <option value="global">全局参数</option>
               {scene?.layers.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
           </label>
-          <details open className="pcb-settings-section"><summary>基础参数：{layer?.label||'全局'}</summary>
+          <details open className="pcb-settings-section"><summary>{colorMode?'彩色识别参数':'纯灰度三分参数'}：{layer?.label||'全局'}</summary>
             <div className="pcb-settings-body">
               <PcbColorPicker color={settings.maskColor} context="details" onChange={maskColor=>onChange({...settings,maskColor})}/>
+              {colorMode&&<label className="pcb-field">表面处理工艺<select aria-label="表面处理工艺" value={settings.color.finish} onChange={event=>onChange({...settings,color:{...settings.color,finish:event.target.value as PcbFinish,metalHue:event.target.value==='osp'?15:45}})}>{Object.entries(PCB_FINISH_LABELS).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>}
               {local&&<>
                 <label className="pcb-checkbox"><input type="checkbox" checked={local.enabled} onChange={event=>update({enabled:event.target.checked})}/>显示这个素材</label>
                 <label className="pcb-field">材料分配
                   <select aria-label="材料分配" value={local.mode} onChange={event=>update({mode:event.target.value as PcbLayerSettings['mode']})}>
-                    <option value="auto">自动分色</option><option value="silk">丝印</option><option value="gold">沉金（铜＋开窗）</option><option value="copper">阻焊下覆铜</option><option value="mask">阻焊底色</option><option value="fr4">裸基材开窗</option>
+                    <option value="auto">{colorMode?'按颜色自动识别':'按灰度自动三分'}</option><option value="silk">丝印</option><option value="gold">{colorMode?getPcbViewLabel('metal',settings):'沉金'}（铜＋开窗）</option><option value="copper">阻焊下覆铜</option><option value="mask">阻焊底色</option><option value="fr4">裸基材开窗</option>
                   </select>
                 </label>
               </>}
-              {processingFields.map(field=><Range key={field.key} label={field.label} value={values[field.key]} min={field.min} max={field.max} step={field.step} unit={'unit' in field?field.unit:''} disabled={!!local&&local.mode!=='auto'&&(field.key==='silkThreshold'||field.key==='maskThreshold')} onChange={value=>update({[field.key]:value})}/>)}
-              <p className="pcb-help">丝印和开窗阈值用于自动分色。加粗和平滑按原图像素调整。</p>
+              {(colorMode?colorFields.filter(field=>settings.color.finish==='hasl'? !['metalHue','hueTolerance','saturationThreshold','metalBrightness'].includes(field.key):field.key!=='silverThreshold'):processingFields).map(field=><Range key={field.key} label={field.label} value={values[field.key]} min={field.min} max={field.max} unit={'unit' in field?field.unit:''} disabled={!!local&&local.mode!=='auto'&&field.key!=='edgeExpansion'&&field.key!=='smoothing'} onChange={value=>update({[field.key]:value})}/>)}
+              <p className="pcb-help">{colorMode?'先识别金属颜色，再按明暗区分丝印、阻焊下覆铜和阻焊底色。':'按灰度阈值区分丝印、沉金与阻焊底色。'}加粗和平滑按原图像素调整。</p>
             </div>
           </details>
+          {colorMode&&(!local||local.mode==='auto')&&<details open className="pcb-settings-section"><summary>裸基材识别</summary><div className="pcb-settings-body">
+            <label className="pcb-checkbox"><input type="checkbox" checked={values.bareEnabled} onChange={event=>update({bareEnabled:event.target.checked})}/>启用裸基材开窗</label>
+            {values.bareEnabled&&<>
+              <label className="pcb-field">基材识别方式<select aria-label="基材识别方式" value={values.bareMethod} onChange={event=>update({bareMethod:event.target.value as 'color'|'gray'})}><option value="color">按相似颜色</option><option value="gray">按灰度区间</option></select></label>
+              {values.bareMethod==='color'?<><label className="pcb-field">基材参考颜色<input aria-label="基材参考颜色" type="color" value={values.bareColor} onChange={event=>update({bareColor:event.target.value})}/></label><Range label="基材颜色相似度" value={values.bareSimilarity} min={0} max={100} unit="%" onChange={bareSimilarity=>update({bareSimilarity})}/></>:<><Range label="基材灰度下限" value={values.bareGrayMin} min={0} max={255} onChange={bareGrayMin=>update({bareGrayMin})}/><Range label="基材灰度上限" value={values.bareGrayMax} min={0} max={255} onChange={bareGrayMax=>update({bareGrayMax})}/></>}
+            </>}
+            <p className="pcb-help">裸基材区域去除铜并开窗，金属识别优先。</p>
+          </div></details>}
           {local&&<details open className="pcb-settings-section"><summary>原图与内部细节</summary>
             <div className="pcb-settings-body">
               <Range label="亮度" value={local.brightness} min={-100} max={100} onChange={brightness=>update({brightness})}/>
@@ -119,7 +140,7 @@ export function PcbAdjustModal(props:Props) {
               <label className="pcb-checkbox"><input type="checkbox" checked={local.darkInk} onChange={event=>update({darkInk:event.target.checked})}/>原图深色作为主体</label>
               <label className="pcb-checkbox"><input type="checkbox" checked={local.preserveDetails} onChange={event=>update({preserveDetails:event.target.checked})}/>保留内部结构留空</label>
               {local.preserveDetails&&<Range label="内部细节阈值" value={local.detailThreshold} min={0} max={255} onChange={detailThreshold=>update({detailThreshold})}/>}
-              <p className="pcb-help">指定丝印或沉金时，内部细节阈值决定哪些原始明暗纹理留空。</p>
+              <p className="pcb-help">指定丝印或金属时，内部细节阈值决定哪些原始明暗纹理留空。</p>
             </div>
           </details>}
           {selected==='faction'&&<details open className="pcb-settings-section"><summary>标志位置与尺寸</summary>
@@ -140,9 +161,9 @@ export function PcbAdjustModal(props:Props) {
               <button type="button" className={side==='front'?'active':''} aria-pressed={side==='front'} onClick={()=>onSideChange('front')}>PCB 正面</button>
               <button type="button" className={side==='back'?'active':''} aria-pressed={side==='back'} onClick={()=>onSideChange('back')}>PCB 背面</button>
             </div>
-            <label className="pcb-view-control">查看图层<select aria-label="查看图层" value={view} onChange={event=>setView(event.target.value as PcbView)}>{Object.entries(PCB_VIEW_LABELS).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+            <label className="pcb-view-control">查看图层<select aria-label="查看图层" value={getPcbViews(settings).includes(view)?view:'appearance'} onChange={event=>setView(event.target.value as PcbView)}>{getPcbViews(settings).map(key=><option key={key} value={key}>{getPcbViewLabel(key,settings)}</option>)}</select></label>
           </div>
-          <div className="pcb-adjust-board"><PcbCanvas frames={frames} side={side} view={view} selection={layer} large/>
+          <div className="pcb-adjust-board"><PcbCanvas frames={frames} side={side} view={getPcbViews(settings).includes(view)?view:'appearance'} selection={layer} large/>
             {busy&&<div className={`pcb-render-status ${frames[side]?'pcb-render-progress':''}`} role="status">{props.interacting?'调整中，松手后细化…':'正在更新 PCB 预览…'}</div>}
           </div>
           {props.error&&<p className="pcb-error" role="alert">{props.error}</p>}
