@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createCanvas,loadImage} from '@napi-rs/canvas';
-import {PCB_DEFAULTS,normalizePcbSettings,PcbLayerSettings} from '../types/pcb';
+import {PCB_DEFAULTS,PCB_COLOR_DEFAULTS,normalizePcbSettings,PcbLayerSettings,patchPcbSettings,resetPcbParameters,getPcbViews,getPcbViewLabel} from '../types/pcb';
 import {PcbMaterial,PcbScene,RasterPixels,composePcbScene,getPcbLayerSettings,processPcbPixels} from './pcbProcessing';
 import {PcbProcessingCache} from './pcbProcessingCache';
 import {createPcbRaster,pcbPalette} from './pcbRaster';
 import {LatestTaskQueue,SupersededTaskError} from './latestTaskQueue';
+import {getBackLogoRect} from './pcbLayout';
 
-const options: PcbLayerSettings={...PCB_DEFAULTS,enabled:true,mode:'auto',invert:false,darkInk:false,preserveDetails:false,detailThreshold:24,brightness:0,contrast:100};
+const options: PcbLayerSettings={...PCB_COLOR_DEFAULTS,...PCB_DEFAULTS,maskIsLight:false,enabled:true,mode:'auto',invert:false,darkInk:false,preserveDetails:false,detailThreshold:24,brightness:0,contrast:100};
 const pixels=(tones:number[],alpha=255):RasterPixels=>({width:tones.length,height:1,data:Uint8ClampedArray.from(tones.flatMap(v=>[v,v,v,alpha]))});
 
 test('independent logo conversion keeps original structure and transparency',()=>{
@@ -85,6 +86,81 @@ test('saved configuration is bounded and invalid colors do not break rendering',
   assert.equal(settings.overrides['invalid:key'],undefined);
 });
 
+const rgbPixels=(colors:number[][]):RasterPixels=>({width:colors.length,height:1,data:Uint8ClampedArray.from(colors.flatMap(rgb=>[...rgb,255]))});
+const colorOptions:PcbLayerSettings={...options,...PCB_COLOR_DEFAULTS,processingMode:'color'};
+
+test('grayscale three-way ignores hue while color mode recognizes metal before luminance',()=>{
+  const source=rgbPixels([[230,190,70],[40,120,220],[240,240,240],[20,20,20]]);
+  assert.deepEqual([...processPcbPixels(source,options)],[PcbMaterial.Silk,PcbMaterial.Gold,PcbMaterial.Silk,PcbMaterial.Mask]);
+  assert.deepEqual([...processPcbPixels(source,colorOptions,true)],[PcbMaterial.Gold,PcbMaterial.CoveredCopper,PcbMaterial.Silk,PcbMaterial.Mask]);
+  assert.deepEqual([...processPcbPixels(source,colorOptions,false)],[...processPcbPixels(source,colorOptions,true)],'color recognition also applies to uploaded photos');
+});
+
+test('surface finish and hue controls change actual metal identification',()=>{
+  const source=rgbPixels([[230,190,70],[220,220,220],[226,154,126]]);
+  assert.equal(processPcbPixels(source,{...colorOptions,metalHue:180})[0],PcbMaterial.CoveredCopper);
+  const silver=processPcbPixels(source,{...colorOptions,finish:'hasl'});
+  assert.equal(silver[0],PcbMaterial.CoveredCopper);assert.equal(silver[1],PcbMaterial.Gold);
+  const osp=processPcbPixels(source,{...colorOptions,finish:'osp',metalHue:15,hueTolerance:15});
+  assert.equal(osp[2],PcbMaterial.Gold);assert.notEqual(osp[0],PcbMaterial.Gold);
+});
+
+test('bare substrate binding supports color or grayscale and preserves alpha and metal priority',()=>{
+  const source=rgbPixels([[80,160,130],[230,190,70],[80,160,130]]);source.data[11]=0;
+  const params={...colorOptions,bareEnabled:true,bareColor:'#50a082',bareSimilarity:99};
+  assert.deepEqual([...processPcbPixels(source,params)],[PcbMaterial.Substrate,PcbMaterial.Gold,PcbMaterial.Transparent]);
+  assert.deepEqual([...processPcbPixels(source,{...params,bareMethod:'gray',bareGrayMin:130,bareGrayMax:150})],[PcbMaterial.Substrate,PcbMaterial.Gold,PcbMaterial.Transparent]);
+});
+
+test('process globals, per-object overrides and reset remain independent across mode switches',()=>{
+  let settings=patchPcbSettings(PCB_DEFAULTS,{silkThreshold:211});
+  settings=patchPcbSettings(settings,{detailThreshold:8},'front:faction');
+  settings=patchPcbSettings({...settings,processingMode:'color'},{silkThreshold:230,metalHue:60});
+  settings=patchPcbSettings(settings,{detailThreshold:40},'front:faction');
+  const saved=normalizePcbSettings(JSON.parse(JSON.stringify(settings)));
+  assert.equal(saved.silkThreshold,211);assert.equal(saved.color.silkThreshold,230);
+  assert.equal(saved.overrides['front:faction'].detailThreshold,8);assert.equal(saved.color.overrides['front:faction'].detailThreshold,40);
+  assert.equal(resetPcbParameters(saved,'front:faction').color.overrides['front:faction'],undefined);
+  assert.equal(resetPcbParameters(saved).color.metalHue,45);assert.equal(resetPcbParameters(saved).silkThreshold,211);
+  assert.equal(getPcbLayerSettings({...saved,processingMode:'gray'},'front',cacheScene().layers[1]).detailThreshold,8);
+  assert.equal(getPcbLayerSettings(saved,'front',cacheScene().layers[1]).detailThreshold,40);
+});
+
+test('legacy settings migrate to grayscale and new color settings are bounded',()=>{
+  const legacy=normalizePcbSettings({silkThreshold:197,overrides:{'front:faction':{detailThreshold:9}}});
+  assert.equal(legacy.processingMode,'gray');assert.equal(legacy.silkThreshold,197);assert.deepEqual(legacy.color,PCB_COLOR_DEFAULTS);
+  const saved=normalizePcbSettings({processingMode:'color',color:{finish:'invalid',metalHue:999,bareColor:'bad',bareSimilarity:-5,overrides:{'front:photo':{metalHue:-10}}}});
+  assert.equal(saved.color.finish,'enig');assert.equal(saved.color.metalHue,359);assert.equal(saved.color.bareColor,PCB_COLOR_DEFAULTS.bareColor);
+  assert.equal(saved.color.bareSimilarity,0);assert.equal(saved.color.overrides['front:photo'].metalHue,0);
+  assert.equal(getPcbViews(legacy).includes('metal'),false);assert.equal(getPcbViews(saved).includes('metal'),true);
+  assert.equal(getPcbViewLabel('metal',{...saved,color:{...saved.color,finish:'hasl'}}),'喷锡层');
+});
+
+test('independent back logo is centered without changing aspect ratio and moves by its own percentages',()=>{
+  for(const image of [{width:563,height:524},{width:120,height:800},{width:1000,height:90}]) {
+    const rect=getBackLogoRect(image);
+    assert.ok(Math.abs(rect.x+rect.width/2-295)<1e-8);
+    assert.ok(Math.abs(rect.y+rect.height/2-590)<1e-8);
+    assert.ok(Math.abs(rect.width/rect.height-image.width/image.height)<1e-8);
+    assert.ok(rect.width<=354.00001 && rect.height<=413.00001);
+    const moved=getBackLogoRect(image,{x:60,y:40,scale:1.5});
+    assert.ok(Math.abs(moved.x+moved.width/2-354)<1e-8);
+    assert.ok(Math.abs(moved.y+moved.height/2-472)<1e-8);
+    assert.ok(Math.abs(moved.width-rect.width*1.5)<1e-8);
+  }
+});
+
+test('back layout preferences migrate and persist without changing mask color or front parameters',()=>{
+  const legacy=normalizePcbSettings({maskColor:'#174d7c',overrides:{'front:faction':{detailThreshold:8}}});
+  assert.deepEqual(legacy.backLogo,{x:50,y:50,scale:1});
+  const settings=normalizePcbSettings({...legacy,backLogo:{x:60,y:40,scale:1.5}});
+  assert.deepEqual(settings.backLogo,{x:60,y:40,scale:1.5});
+  assert.equal(settings.maskColor,legacy.maskColor);
+  assert.deepEqual(settings.overrides,legacy.overrides);
+  assert.deepEqual(normalizePcbSettings(JSON.parse(JSON.stringify(settings))).backLogo,settings.backLogo);
+  assert.deepEqual(normalizePcbSettings({backLogo:{x:-10,y:999,scale:NaN}}).backLogo,{x:0,y:100,scale:1});
+});
+
 const cacheScene=():PcbScene=>({side:'front',width:6,height:1,boardMask:new Uint8Array([1,1,1,1,1,0]),layers:[
   {id:'photo',label:'photo',x:0,y:0,pixels:pixels([70,140,210,250,160,255]),photo:true},
   {id:'faction',label:'logo',x:2,y:0,pixels:pixels([0,60,0]),defaults:{mode:'silk',darkInk:true,preserveDetails:true}},
@@ -149,6 +225,33 @@ test('raster previews and manufacturing PNGs agree about colors, holes and openi
     const raster=createPcbRaster(board,PCB_DEFAULTS,view,true);
     for(let i=0;i<board.materials.length;i++)assert.deepEqual([...raster.data.slice(i*4,i*4+4)],[0,0,0,board.boardMask[i]&&board[view][i]?255:0]);
   }
+});
+
+test('color process invalidates only affected cached objects including light-mask polarity',()=>{
+  const scene=cacheScene(),cache=new PcbProcessingCache(),settings={...PCB_DEFAULTS,processingMode:'color' as const};
+  cache.compose(scene,settings);
+  const changed={...settings,color:{...settings.color,metalHue:100}};
+  assert.deepEqual(cache.compose(scene,changed),composePcbScene(scene,changed));
+  assert.equal(cache.stats.processedLayers,1);assert.equal(cache.stats.reusedLayers,2);
+  const white={...changed,maskColor:'#eeece0'};
+  assert.deepEqual(cache.compose(scene,white),composePcbScene(scene,white));
+  assert.equal(cache.stats.processedLayers,1,'light-mask recognition changes polarity, not just preview color');
+  assert.deepEqual(cache.compose(scene,PCB_DEFAULTS),composePcbScene(scene,PCB_DEFAULTS));
+});
+
+test('metal, covered copper and substrate exports derive from physical layers and clip board holes',()=>{
+  const scene:PcbScene={side:'front',width:4,height:1,boardMask:new Uint8Array([1,1,1,0]),layers:[
+    {id:'metal',label:'metal',x:0,y:0,pixels:pixels([255]),defaults:{mode:'gold'}},
+    {id:'copper',label:'copper',x:1,y:0,pixels:pixels([255]),defaults:{mode:'copper'}},
+    {id:'bare',label:'bare',x:2,y:0,pixels:pixels([255,255]),defaults:{mode:'fr4'}},
+  ]};
+  const settings={...PCB_DEFAULTS,processingMode:'color' as const},board=composePcbScene(scene,settings);
+  for(const [view,expected] of [['metal',[255,0,0,0]],['coveredCopper',[0,255,0,0]],['substrate',[0,0,255,0]]] as const) {
+    const raster=createPcbRaster(board,settings,view,true);
+    assert.deepEqual([raster.data[3],raster.data[7],raster.data[11],raster.data[15]],expected);
+  }
+  const silver=createPcbRaster(board,{...settings,color:{...settings.color,finish:'hasl'}});
+  assert.deepEqual([...silver.data.slice(0,4)],[200,205,215,255]);
 });
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));

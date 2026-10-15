@@ -86,7 +86,7 @@ export function getPcbWorkerClient(): PcbWorkerClient {
 (import.meta as ImportMeta & {hot?: {dispose: (callback: () => void) => void}}).hot?.dispose(() => sharedClient?.dispose());
 
 export async function exportPcbImages(inputs: PcbInputs, settings: PcbSettings, plan: PcbExportPlan) {
-  const scenes = await buildPcbScenes(inputs);
+  const scenes = await buildPcbScenes({...inputs,backLogo:settings.backLogo});
   const images = await getPcbWorkerClient().export({scenes, settings, side: plan.sides[0] || 'front', quality: 'full', plan});
   return {scenes, images};
 }
