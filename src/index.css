@@ -185,6 +185,8 @@ body { margin: 0; }
 .pcb-adjust-header p { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
 .pcb-adjust-layout { display: grid; grid-template-columns: 350px minmax(0,1fr); min-height: 0; flex: 1; }
 .pcb-adjust-controls { overflow-y: auto; border-right: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.pcb-adjust-side-switch { display: flex; flex-shrink: 0; }
+.pcb-adjust-side-switch button { flex: 1; padding: 8px; }
 .pcb-field { display: grid; gap: 7px; font-size: 13px; }
 .pcb-field select, .pcb-view-control select { width: 100%; padding: 9px 10px; }
 .pcb-settings-section { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }

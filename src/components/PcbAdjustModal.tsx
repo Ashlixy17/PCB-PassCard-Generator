@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {ArrowLeft,Download,RotateCcw,SlidersHorizontal} from 'lucide-react';
 import {E1Options} from '../types';
-import {PcbSettings,PcbLayerSettings,PcbSide,PcbView,PcbFinish,PCB_FINISH_LABELS,PCB_COLOR_DEFAULTS,getPcbViews,getPcbViewLabel,getPcbModeLabel,getPcbParameters,patchPcbSettings,resetPcbParameters} from '../types/pcb';
+import {PcbSettings,PcbLayerSettings,PcbSide,PcbView,PcbFinish,PCB_FINISH_LABELS,PCB_COLOR_DEFAULTS,PCB_BACK_LOGO_DEFAULTS,getPcbViews,getPcbViewLabel,getPcbModeLabel,getPcbParameters,patchPcbSettings,resetPcbParameters} from '../types/pcb';
 import {PcbScene,getPcbLayerSettings,pcbLayerKey} from '../utils/pcbProcessing';
 import {PcbFrames} from '../types/pcbWorker';
 import {PcbCanvas} from './PcbCanvas';
@@ -45,13 +45,15 @@ function Range({label,value,min,max,step=1,unit='',onChange,disabled=false}:{key
 
 export function PcbAdjustModal(props:Props) {
   const {open,onClose,side,onSideChange,settings,onChange,scenes,frames,e1Opts,onE1OptsChange,busy}=props;
-  const [selected,setSelected]=useState('global');
+  const [selectedBySide,setSelectedBySide]=useState<Record<PcbSide,string>>({front:'global',back:'faction'});
+  const selected=selectedBySide[side];
+  const setSelected=(value:string)=>setSelectedBySide(previous=>({...previous,[side]:value}));
   const [view,setView]=useState<PcbView>('appearance');
   const dialog=useRef<HTMLDivElement|null>(null);
   useEffect(()=>setView('appearance'),[settings.processingMode]);
   useEffect(()=>{
     if(!open)return;
-    setSelected(props.focusLayer||'global');setView('appearance');
+    setSelected(props.focusLayer||(side==='back'?'faction':'global'));setView('appearance');
     const overflow=document.body.style.overflow;document.body.style.overflow='hidden';
     return()=>{document.body.style.overflow=overflow;};
   },[open,props.focusLayer]);
@@ -96,11 +98,15 @@ export function PcbAdjustModal(props:Props) {
       }
     }}>
       <header className="pcb-adjust-header">
-        <div><h2 id="pcb-adjust-title"><SlidersHorizontal size={18}/>PCB 详细调整</h2><p>{getPcbModeLabel(settings)} · 参数按工艺分别保存</p></div>
+        <div><h2 id="pcb-adjust-title"><SlidersHorizontal size={18}/>PCB 详细调整 · {side==='back'?'背面':'正面'}</h2><p>{getPcbModeLabel(settings)} · 素材参数按正反面分别保存</p></div>
         <button type="button" className="pcg-primary" onClick={onClose} autoFocus><ArrowLeft size={16}/>完成调整</button>
       </header>
       <div className="pcb-adjust-layout">
         <aside className="pcb-adjust-controls">
+          <div className="mode-switch mode-switch-preview pcb-adjust-side-switch" role="group" aria-label="调整版面">
+            <button type="button" className={side==='front'?'active':''} aria-pressed={side==='front'} onClick={()=>{props.onInteractionChange(false);onSideChange('front');}}>正面调整</button>
+            <button type="button" className={side==='back'?'active':''} aria-pressed={side==='back'} onClick={()=>{props.onInteractionChange(false);onSideChange('back');}}>背面调整</button>
+          </div>
           <PcbModeSwitch mode={settings.processingMode} onChange={processingMode=>{props.onInteractionChange(false);onChange({...settings,processingMode});}}/>
           <label className="pcb-field">调整对象
             <select aria-label="调整对象" value={selected} onChange={event=>setSelected(event.target.value)}>
@@ -108,6 +114,15 @@ export function PcbAdjustModal(props:Props) {
               {scene?.layers.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
           </label>
+          {side==='back'&&selected==='faction'&&<details open className="pcb-settings-section"><summary>背面 Logo 位置与尺寸</summary>
+            <div className="pcb-settings-body">
+              <Range label="背面水平位置" value={settings.backLogo.x} min={0} max={100} unit="%" onChange={x=>onChange({...settings,backLogo:{...settings.backLogo,x}})}/>
+              <Range label="背面垂直位置" value={settings.backLogo.y} min={0} max={100} unit="%" onChange={y=>onChange({...settings,backLogo:{...settings.backLogo,y}})}/>
+              <Range label="背面 Logo 缩放" value={Math.round(settings.backLogo.scale*100)} min={10} max={200} unit="%" onChange={value=>onChange({...settings,backLogo:{...settings.backLogo,scale:value/100}})}/>
+              <button type="button" onClick={()=>onChange({...settings,backLogo:{...PCB_BACK_LOGO_DEFAULTS}})}>恢复背面居中</button>
+              <p className="pcb-help">位置以 Logo 中心为准，50%／50% 表示板面正中央。背面布局独立保存。</p>
+            </div>
+          </details>}
           <details open className="pcb-settings-section"><summary>{colorMode?'彩色识别参数':'纯灰度三分参数'}：{layer?.label||'全局'}</summary>
             <div className="pcb-settings-body">
               <PcbColorPicker color={settings.maskColor} context="details" onChange={maskColor=>onChange({...settings,maskColor})}/>
@@ -143,7 +158,7 @@ export function PcbAdjustModal(props:Props) {
               <p className="pcb-help">指定丝印或金属时，内部细节阈值决定哪些原始明暗纹理留空。</p>
             </div>
           </details>}
-          {selected==='faction'&&<details open className="pcb-settings-section"><summary>标志位置与尺寸</summary>
+          {side==='front'&&selected==='faction'&&<details open className="pcb-settings-section"><summary>标志位置与尺寸</summary>
             <div className="pcb-settings-body">
               <Range label="水平偏移" value={e1Opts.iconX} min={-150} max={150} unit=" px" onChange={iconX=>onE1OptsChange({...e1Opts,iconX})}/>
               <Range label="垂直偏移" value={e1Opts.iconY} min={-150} max={150} unit=" px" onChange={iconY=>onE1OptsChange({...e1Opts,iconY})}/>
@@ -157,10 +172,7 @@ export function PcbAdjustModal(props:Props) {
         </aside>
         <section className="pcb-adjust-preview">
           <div className="pcb-preview-toolbar">
-            <div className="mode-switch mode-switch-preview" role="group" aria-label="详细调整正反面">
-              <button type="button" className={side==='front'?'active':''} aria-pressed={side==='front'} onClick={()=>onSideChange('front')}>PCB 正面</button>
-              <button type="button" className={side==='back'?'active':''} aria-pressed={side==='back'} onClick={()=>onSideChange('back')}>PCB 背面</button>
-            </div>
+            <span className="pcb-finish-label">{side==='back'?'独立背面 · 阵营 Logo':'正面通行证'}</span>
             <label className="pcb-view-control">查看图层<select aria-label="查看图层" value={getPcbViews(settings).includes(view)?view:'appearance'} onChange={event=>setView(event.target.value as PcbView)}>{getPcbViews(settings).map(key=><option key={key} value={key}>{getPcbViewLabel(key,settings)}</option>)}</select></label>
           </div>
           <div className="pcb-adjust-board"><PcbCanvas frames={frames} side={side} view={getPcbViews(settings).includes(view)?view:'appearance'} selection={layer} large/>

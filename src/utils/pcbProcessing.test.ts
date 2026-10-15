@@ -7,6 +7,7 @@ import {PcbMaterial,PcbScene,RasterPixels,composePcbScene,getPcbLayerSettings,pr
 import {PcbProcessingCache} from './pcbProcessingCache';
 import {createPcbRaster,pcbPalette} from './pcbRaster';
 import {LatestTaskQueue,SupersededTaskError} from './latestTaskQueue';
+import {getBackLogoRect} from './pcbLayout';
 
 const options: PcbLayerSettings={...PCB_COLOR_DEFAULTS,...PCB_DEFAULTS,maskIsLight:false,enabled:true,mode:'auto',invert:false,darkInk:false,preserveDetails:false,detailThreshold:24,brightness:0,contrast:100};
 const pixels=(tones:number[],alpha=255):RasterPixels=>({width:tones.length,height:1,data:Uint8ClampedArray.from(tones.flatMap(v=>[v,v,v,alpha]))});
@@ -133,6 +134,31 @@ test('legacy settings migrate to grayscale and new color settings are bounded',(
   assert.equal(saved.color.bareSimilarity,0);assert.equal(saved.color.overrides['front:photo'].metalHue,0);
   assert.equal(getPcbViews(legacy).includes('metal'),false);assert.equal(getPcbViews(saved).includes('metal'),true);
   assert.equal(getPcbViewLabel('metal',{...saved,color:{...saved.color,finish:'hasl'}}),'喷锡层');
+});
+
+test('independent back logo is centered without changing aspect ratio and moves by its own percentages',()=>{
+  for(const image of [{width:563,height:524},{width:120,height:800},{width:1000,height:90}]) {
+    const rect=getBackLogoRect(image);
+    assert.ok(Math.abs(rect.x+rect.width/2-295)<1e-8);
+    assert.ok(Math.abs(rect.y+rect.height/2-590)<1e-8);
+    assert.ok(Math.abs(rect.width/rect.height-image.width/image.height)<1e-8);
+    assert.ok(rect.width<=354.00001 && rect.height<=413.00001);
+    const moved=getBackLogoRect(image,{x:60,y:40,scale:1.5});
+    assert.ok(Math.abs(moved.x+moved.width/2-354)<1e-8);
+    assert.ok(Math.abs(moved.y+moved.height/2-472)<1e-8);
+    assert.ok(Math.abs(moved.width-rect.width*1.5)<1e-8);
+  }
+});
+
+test('back layout preferences migrate and persist without changing mask color or front parameters',()=>{
+  const legacy=normalizePcbSettings({maskColor:'#174d7c',overrides:{'front:faction':{detailThreshold:8}}});
+  assert.deepEqual(legacy.backLogo,{x:50,y:50,scale:1});
+  const settings=normalizePcbSettings({...legacy,backLogo:{x:60,y:40,scale:1.5}});
+  assert.deepEqual(settings.backLogo,{x:60,y:40,scale:1.5});
+  assert.equal(settings.maskColor,legacy.maskColor);
+  assert.deepEqual(settings.overrides,legacy.overrides);
+  assert.deepEqual(normalizePcbSettings(JSON.parse(JSON.stringify(settings))).backLogo,settings.backLogo);
+  assert.deepEqual(normalizePcbSettings({backLogo:{x:-10,y:999,scale:NaN}}).backLogo,{x:0,y:100,scale:1});
 });
 
 const cacheScene=():PcbScene=>({side:'front',width:6,height:1,boardMask:new Uint8Array([1,1,1,1,1,0]),layers:[

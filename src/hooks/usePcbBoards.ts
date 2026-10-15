@@ -35,7 +35,7 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
     const controller = new AbortController();
     generation.current++;
     setSourceLoading(true); setError('');
-    buildPcbScenes(inputs, controller.signal).then(value => {
+    buildPcbScenes({...inputs,backLogo:settings.backLogo}, controller.signal).then(value => {
       if (!controller.signal.aborted) setScenes(value);
     }).catch(error => {
       if (!controller.signal.aborted) {
@@ -44,7 +44,7 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
       }
     }).finally(() => { if (!controller.signal.aborted) setSourceLoading(false); });
     return () => controller.abort();
-  }, [inputs.info, inputs.e1Opts, inputs.frontPhotoUrl, inputs.cutoutPhotoUrl, inputs.customIconUrl]);
+  }, [inputs.info, inputs.e1Opts, inputs.frontPhotoUrl, inputs.cutoutPhotoUrl, inputs.customIconUrl,settings.backLogo]);
 
   useEffect(() => {
     if (!scenes || sourceLoading) return;

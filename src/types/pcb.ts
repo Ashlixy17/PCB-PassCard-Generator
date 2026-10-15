@@ -4,6 +4,9 @@ export type PcbFinish = 'enig' | 'hasl' | 'osp';
 export type PcbView = 'appearance' | 'silk' | 'copper' | 'mask' | 'metal' | 'coveredCopper' | 'substrate';
 export type PcbMaterialMode = 'auto' | 'silk' | 'gold' | 'copper' | 'mask' | 'fr4';
 
+export interface PcbBackLogoLayout {x: number; y: number; scale: number}
+export const PCB_BACK_LOGO_DEFAULTS: PcbBackLogoLayout = {x: 50, y: 50, scale: 1};
+
 export interface PcbProcessingSettings {
   silkThreshold: number;
   maskThreshold: number;
@@ -43,6 +46,7 @@ export interface PcbLayerSettings extends PcbProcessingSettings, PcbColorProcess
 export interface PcbSettings extends PcbProcessingSettings {
   processingMode: PcbProcessingMode;
   maskColor: string;
+  backLogo: PcbBackLogoLayout;
   overrides: Record<string, Partial<PcbLayerSettings>>;
   color: PcbColorProcessingSettings & {overrides: Record<string, Partial<PcbLayerSettings>>};
 }
@@ -57,6 +61,7 @@ export const PCB_COLOR_DEFAULTS: PcbSettings['color'] = {
 export const PCB_DEFAULTS: PcbSettings = {
   processingMode: 'gray',
   maskColor: '#174d7c',
+  backLogo: PCB_BACK_LOGO_DEFAULTS,
   silkThreshold: 180,
   maskThreshold: 100,
   edgeExpansion: 0,
@@ -137,6 +142,7 @@ function normalizeOverrides(input: unknown): PcbSettings['overrides'] {
 
 export function normalizePcbSettings(value: unknown): PcbSettings {
   const input = value && typeof value === 'object' ? value as Partial<PcbSettings> : {};
+  const savedBack = input.backLogo && typeof input.backLogo === 'object' ? input.backLogo : {} as Partial<PcbBackLogoLayout>;
   const savedColor = input.color && typeof input.color === 'object' ? input.color : {} as Partial<PcbSettings['color']>;
   const color = {...PCB_COLOR_DEFAULTS, overrides: normalizeOverrides(savedColor.overrides)};
   for (const field of Object.keys(PCB_COLOR_DEFAULTS) as (keyof typeof PCB_COLOR_DEFAULTS)[]) {
@@ -152,6 +158,7 @@ export function normalizePcbSettings(value: unknown): PcbSettings {
   return {
     processingMode: input.processingMode === 'color' ? 'color' : 'gray',
     maskColor: validColor(input.maskColor) ? input.maskColor : PCB_DEFAULTS.maskColor,
+    backLogo: {x: clamp(savedBack.x,50,0,100), y: clamp(savedBack.y,50,0,100), scale: clamp(savedBack.scale,1,.1,2)},
     silkThreshold: clamp(input.silkThreshold, 180, 0, 255),
     maskThreshold: clamp(input.maskThreshold, 100, 0, 255),
     edgeExpansion: clamp(input.edgeExpansion, 0, 0, 4),
