@@ -251,7 +251,11 @@ export function ensureFontsLoaded(): Promise<void> {
     try {
       const fontsList = Array.from(document.fonts.values());
       const loadIfMissing = async (family: string, src: string, options?: FontFaceDescriptors) => {
-        if (fontsList.some(f => f.family === family)) return;
+        const existing = fontsList.find(f => f.family.replace(/["']/g, '') === family);
+        if (existing) {
+          await existing.load();
+          return;
+        }
         const face = new FontFace(family, src, options);
         const loaded = await face.load();
         document.fonts.add(loaded);
@@ -299,7 +303,7 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 /**
  * Get Profession Icon URL based on key
  */
-function getProfessionIconUrl(prof: string): string {
+export function getProfessionIconUrl(prof: string): string {
   let key = '正面__职业图标__近卫图标.png';
   switch (prof) {
     case '近卫': key = '正面__职业图标__近卫图标.png'; break;
@@ -360,7 +364,7 @@ export function getFactionIconPos(factionName: string): { x: number; y: number; 
   return FACTION_POS_MAP['罗德岛'];
 }
 
-function getFactionIconUrl(factionName: string): string | null {
+export function getFactionIconUrl(factionName: string): string | null {
   if (!factionName) return PSD_ASSETS['中间__阵营图标__罗德岛.png'] ?? null;
   const name = factionName.trim();
   const map: Record<string, string> = {
@@ -405,7 +409,7 @@ function getFactionIconUrl(factionName: string): string | null {
 /**
  * Draw Vertical Barcode on Left / Right edge
  */
-function drawVerticalBarcode(
+export function drawVerticalBarcode(
   ctx: CanvasRenderingContext2D,
   text: string,
   x: number,

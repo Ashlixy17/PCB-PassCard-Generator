@@ -8,7 +8,8 @@
     "dev": "vite --port=3000 --host=127.0.0.1 --open /PCB-PassCard-Generator.html",
     "build": "vite build",
     "preview": "vite preview --host=127.0.0.1 --open /PCB-PassCard-Generator.html",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:pcb": "node --import tsx --test src/utils/pcbProcessing.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
