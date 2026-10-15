@@ -1,4 +1,4 @@
-import {PCB_DEFAULTS, PcbSide} from '../src/types/pcb';
+import {PCB_DEFAULTS, PcbSide, getPcbViews} from '../src/types/pcb';
 import {PcbScenes, PcbSideFrames} from '../src/types/pcbWorker';
 import {composePcbScene} from '../src/utils/pcbProcessing';
 import {createPcbRaster} from '../src/utils/pcbRaster';
@@ -16,7 +16,7 @@ button.addEventListener('click', async () => {
   const data = new Uint8ClampedArray(590 * 1180 * 4);
   for (let y = 0; y < 1180; y++) for (let x = 0; x < 590; x++) {
     const i = (y * 590 + x) * 4, tone = 60 + (x * 3 + y) % 190;
-    data[i] = tone; data[i + 1] = tone; data[i + 2] = tone; data[i + 3] = 255;
+    data[i] = x<195?230:tone; data[i + 1] = x<195?190:tone; data[i + 2] = x<195?70:x>390?220:tone; data[i + 3] = 255;
   }
   const pixels = {width: 590, height: 1180, data}, mask = new Uint8Array(590 * 1180).fill(1);
   for (let x = 180; x < 400; x++) for (let y = 30; y < 60; y++) mask[y * 590 + x] = 0;
@@ -71,7 +71,31 @@ button.addEventListener('click', async () => {
       const expected = createPcbRaster(original[file.side], settings, file.view, file.view !== 'appearance').data;
       check(actual.every((value, i) => value === expected[i]), `${file.side}/${file.view} changed the original layer output`);
     }
-    report.exact_png_exports_verified = images.length; report.result = 'PASS';
+    report.exact_png_exports_verified = images.length;
+    let colorExports=0;
+    for(const finish of ['enig','hasl','osp'] as const) {
+      const colorSettings={...PCB_DEFAULTS,processingMode:'color' as const,color:{...PCB_DEFAULTS.color,finish,metalHue:finish==='osp'?15:45}};
+      const expectedBoards={front:composePcbScene(scenes.front,colorSettings),back:composePcbScene(scenes.back,colorSettings)};
+      await client.preview({scenes,settings:colorSettings,side:'front',quality:'full',onSide:(face,frames)=>{
+        check(!!frames.metal && !!frames.coveredCopper && !!frames.substrate,'Color preview omitted process-specific layers');draw(face,frames);
+      }});
+      const files=await client.export({scenes,settings:colorSettings,side:'front',quality:'full',plan:{sides:['front','back'],views:getPcbViews(colorSettings),outline:true}});
+      check(files.length===16,'Color export omitted material or manufacturing layers');
+      for(const file of files) {
+        const bitmap=await createImageBitmap(await pcbImageBlob(file));
+        check(bitmap.width===590 && bitmap.height===1180,'Color export used draft dimensions');
+        const decoded=document.createElement('canvas');decoded.width=590;decoded.height=1180;
+        const ctx=decoded.getContext('2d')!;ctx.drawImage(bitmap,0,0);bitmap.close();
+        const actual=ctx.getImageData(0,0,590,1180).data;
+        const expected=createPcbRaster(expectedBoards[file.side],colorSettings,file.view,file.view!=='appearance').data;
+        check(actual.every((value,i)=>value===expected[i]),`${finish}/${file.side}/${file.view} changed worker export pixels`);
+        colorExports++;
+      }
+    }
+    await client.preview({scenes,settings,side:'back',quality:'full',onSide:(face,frames)=>{
+      check(!frames.metal && Object.keys(frames).length===4,'Grayscale reused color-specific layers after switching back');draw(face,frames);
+    }});
+    report.exact_color_png_exports_verified=colorExports;report.result = 'PASS';
     output.textContent = JSON.stringify(report, null, 2);
   } catch (error) {
     output.textContent = JSON.stringify({...report, result: 'FAIL', error: String(error)}, null, 2);

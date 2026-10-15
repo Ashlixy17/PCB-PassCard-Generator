@@ -1,18 +1,20 @@
 import {useEffect,useState} from 'react';
 import {CircuitBoard,Download,SlidersHorizontal,Loader2} from 'lucide-react';
 import {E1Options} from '../types';
-import {PcbSettings,PcbSide,PcbView} from '../types/pcb';
+import {PcbSettings,PcbSide,PcbView,PCB_FINISH_LABELS,getPcbViews,getPcbViewLabel} from '../types/pcb';
 import {PcbInputs} from '../utils/pcbRenderer';
 import {downloadPcbPreview} from '../utils/pcbWorkerClient';
 import {usePcbBoards} from '../hooks/usePcbBoards';
 import {PcbCanvas} from './PcbCanvas';
 import {PcbColorPicker} from './PcbColorPicker';
 import {PcbAdjustModal} from './PcbAdjustModal';
+import {PcbModeSwitch} from './PcbModeSwitch';
 
 interface Props {inputs:PcbInputs;settings:PcbSettings;onChange:(settings:PcbSettings)=>void;onE1OptsChange:(value:E1Options)=>void;detailRequest:number;onExport:()=>void}
 
 export function PcbPreview({inputs,settings,onChange,onE1OptsChange,detailRequest,onExport}:Props) {
   const [side,setSide]=useState<PcbSide>('front');
+  const [view,setView]=useState<PcbView>('appearance');
   const [open,setOpen]=useState(false);
   const [focusLayer,setFocusLayer]=useState<string|undefined>();
   const [interacting,setInteracting]=useState(false);
@@ -26,23 +28,26 @@ export function PcbPreview({inputs,settings,onChange,onE1OptsChange,detailReques
     finally{setDownloading(false);}
   };
   useEffect(()=>{if(detailRequest>0){setSide('front');setFocusLayer('faction');setOpen(true);}},[detailRequest]);
+  const activeView=getPcbViews(settings).includes(view)?view:'appearance';
   return <section className="pcb-preview-panel" aria-labelledby="pcb-preview-title">
-    <div className="pcb-preview-header"><h2 id="pcb-preview-title"><CircuitBoard size={19}/>PCB 板预览</h2><span className="pcb-finish-label">沉金 · ENIG</span></div>
+    <div className="pcb-preview-header"><h2 id="pcb-preview-title"><CircuitBoard size={19}/>PCB 板预览</h2><span className="pcb-finish-label">{settings.processingMode==='color'?PCB_FINISH_LABELS[settings.color.finish]:'灰度三分'}</span></div>
+    <PcbModeSwitch mode={settings.processingMode} onChange={processingMode=>{setView('appearance');setInteracting(false);onChange({...settings,processingMode});}}/>
     <div className="pcb-preview-toolbar">
       <div className="mode-switch mode-switch-preview" role="group" aria-label="PCB 正反面">
         <button type="button" className={side==='front'?'active':''} aria-pressed={side==='front'} onClick={()=>setSide('front')}>正面</button>
         <button type="button" className={side==='back'?'active':''} aria-pressed={side==='back'} onClick={()=>setSide('back')}>背面</button>
       </div>
+      <label className="pcb-view-control">图层<select aria-label="预览图层" value={activeView} onChange={event=>setView(event.target.value as PcbView)}>{getPcbViews(settings).map(key=><option key={key} value={key}>{getPcbViewLabel(key,settings)}</option>)}</select></label>
       <button type="button" onClick={()=>{setFocusLayer(undefined);setOpen(true);}} data-testid="pcb-detail-open"><SlidersHorizontal size={15}/>详细调整</button>
     </div>
     <PcbColorPicker color={settings.maskColor} onChange={maskColor=>onChange({...settings,maskColor})}/>
-    <div className="pcb-preview-board"><PcbCanvas frames={frames} side={side}/>
+    <div className="pcb-preview-board"><PcbCanvas frames={frames} side={side} view={activeView}/>
       {busy&&<div className={`pcb-render-status ${frames[side]?'pcb-render-progress':''}`} role="status"><Loader2 size={15} className="animate-spin"/>{interacting?'调整中，松手后细化…':'正在更新 PCB 预览…'}</div>}
     </div>
     {(error||downloadError)&&<p className="pcb-error" role="alert">{error||downloadError}</p>}
     <div className="pcb-preview-footer"><span>590 × 1180 px · {side==='front'?'正面':'背面'}</span><span>正反面共用阻焊配色</span></div>
     <div className="pcb-preview-actions">
-      <button type="button" disabled={!scenes||busy||downloading} onClick={()=>void download('appearance')}><Download size={15}/>{downloading?'正在导出…':'下载 PCB 效果图'}</button>
+      <button type="button" disabled={!scenes||busy||downloading} onClick={()=>void download(activeView)}><Download size={15}/>{downloading?'正在导出…':activeView==='appearance'?'下载 PCB 效果图':'下载当前图层'}</button>
       <button type="button" className="pcg-primary" onClick={onExport}>导出分层</button>
     </div>
     <PcbAdjustModal open={open} onClose={()=>{setOpen(false);setInteracting(false);}} side={side} onSideChange={setSide} settings={settings} onChange={onChange} scenes={scenes} frames={frames} e1Opts={inputs.e1Opts} onE1OptsChange={onE1OptsChange} focusLayer={focusLayer} busy={busy||downloading} interacting={interacting} onInteractionChange={setInteracting} onDownload={download} error={downloadError}/>

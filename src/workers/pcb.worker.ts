@@ -1,4 +1,4 @@
-import {PcbSide, PcbView} from '../types/pcb';
+import {PcbSide, PcbView, PcbSettings, getPcbViews} from '../types/pcb';
 import {PcbExportImage, PcbFrame, PcbScenePatch, PcbSideFrames, PcbWorkerRequest, PcbWorkerResponse} from '../types/pcbWorker';
 import {PcbBoard, PcbScene, RasterPixels} from '../utils/pcbProcessing';
 import {PcbProcessingCache} from '../utils/pcbProcessingCache';
@@ -11,7 +11,6 @@ const scope = self as unknown as {
 const processor = new PcbProcessingCache();
 const scenes = new Map<PcbSide, PcbScene>();
 const sources = new Map<string, RasterPixels>();
-const views: PcbView[] = ['appearance', 'silk', 'copper', 'mask'];
 let cancelledUntil = 0;
 interface CachedImage {board: PcbBoard; color: string; raster: RasterPixels; canvas?: OffscreenCanvas}
 const images = new Map<string, CachedImage>();
@@ -31,12 +30,12 @@ function applyScene(patch: PcbScenePatch): PcbScene {
   return scene;
 }
 
-function imageFor(board: PcbBoard, color: string, view: PcbView | 'outline', quality: string, manufacturing = false): CachedImage {
+function imageFor(board: PcbBoard, settings: PcbSettings, view: PcbView | 'outline', quality: string, manufacturing = false): CachedImage {
   const key = `${board.side}:${quality}:${view}:${manufacturing}`;
-  const paletteKey = view === 'appearance' ? color : '';
+  const paletteKey = view === 'appearance' ? `${settings.maskColor}:${settings.processingMode}:${settings.color.finish}` : '';
   const cached = images.get(key);
   if (cached?.board === board && cached.color === paletteKey) return cached;
-  const raster = createPcbRaster(board, {maskColor: color}, view, manufacturing);
+  const raster = createPcbRaster(board, settings, view, manufacturing);
   let canvas: OffscreenCanvas | undefined;
   if (typeof OffscreenCanvas !== 'undefined') {
     canvas = cached?.canvas || new OffscreenCanvas(board.width, board.height);
@@ -65,9 +64,9 @@ async function process(request: Extract<PcbWorkerRequest, {type: 'process'}>) {
       for (const side of request.plan!.sides) {
         // Export always uses the unscaled original sources, even during a drag.
         const board = processor.compose(source[side], request.settings, 'full');
-        const requested = [...request.plan!.views, ...(request.plan!.outline ? ['outline' as const] : [])];
+        const requested = [...request.plan!.views.filter(view=>getPcbViews(request.settings).includes(view)), ...(request.plan!.outline ? ['outline' as const] : [])];
         for (const view of requested) {
-          const image = imageFor(board, request.settings.maskColor, view, 'full', view !== 'appearance');
+          const image = imageFor(board, request.settings, view, 'full', view !== 'appearance');
           files.push(image.canvas ? {side, view, blob: await image.canvas.convertToBlob({type: 'image/png'})} : {side, view, raster: image.raster});
         }
       }
@@ -79,7 +78,7 @@ async function process(request: Extract<PcbWorkerRequest, {type: 'process'}>) {
       if (request.id <= cancelledUntil) break;
       const board = processor.compose(source[side], request.settings, request.quality);
       const frames: PcbSideFrames = {};
-      for (const view of views) frames[view] = await previewFrame(imageFor(board, request.settings.maskColor, view, request.quality));
+      for (const view of getPcbViews(request.settings)) frames[view] = await previewFrame(imageFor(board, request.settings, view, request.quality));
       if (request.id <= cancelledUntil) {
         for (const frame of Object.values(frames)) frame.bitmap?.close();
         break;

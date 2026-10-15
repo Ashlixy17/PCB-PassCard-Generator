@@ -49,7 +49,7 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
   useEffect(() => {
     if (!scenes || sourceLoading) return;
     const version = ++generation.current;
-    const parameters = JSON.stringify([settings.silkThreshold, settings.maskThreshold, settings.edgeExpansion, settings.smoothing, settings.overrides]);
+    const parameters = JSON.stringify([settings.processingMode, settings.processingMode === 'color' ? settings.color : [settings.silkThreshold,settings.maskThreshold,settings.edgeExpansion,settings.smoothing,settings.overrides]]);
     const paletteOnly = previous.current?.scenes === scenes && previous.current.parameters === parameters;
     previous.current = {scenes, parameters};
     let client: ReturnType<typeof getPcbWorkerClient> | undefined;
@@ -62,7 +62,7 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
         void client.preview({scenes, settings, side: priority.current, quality, onSide: (face, update) => {
           if (!active || version !== generation.current) { closePcbFrames(update); return; }
           for (const frame of Object.values(update)) ownedFrames.current.add(frame);
-          setFrames(previous => ({...previous, [face]: {...previous[face], ...update}}));
+          setFrames(previous => ({...previous, [face]: update}));
         }}).then(() => {
           if (active && version === generation.current && quality === 'full') setProcessing(false);
         }).catch(error => {

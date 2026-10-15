@@ -1,4 +1,4 @@
-import { PcbLayerSettings, PcbSettings, PcbSide } from '../types/pcb';
+import { PcbLayerSettings, PcbSettings, PcbSide, PCB_COLOR_DEFAULTS, getPcbOverrides, getPcbParameters } from '../types/pcb';
 
 export enum PcbMaterial { Mask, Silk, Gold, CoveredCopper, Substrate, Transparent = 255 }
 export interface RasterPixels { width: number; height: number; data: Uint8ClampedArray }
@@ -32,13 +32,29 @@ export interface PcbBoard {
 export const pcbLayerKey = (side: PcbSide, id: string) => `${side}:${id}`;
 
 export function getPcbLayerSettings(settings: PcbSettings, side: PcbSide, layer: PcbSourceLayer): PcbLayerSettings {
+  const rgb = [1,3,5].map(index => parseInt(settings.maskColor.slice(index,index+2),16));
   return {
+    ...PCB_COLOR_DEFAULTS,
     enabled: true, mode: 'auto', invert: false, darkInk: false,
     preserveDetails: false, detailThreshold: 24, brightness: 0, contrast: 100,
     silkThreshold: settings.silkThreshold, maskThreshold: settings.maskThreshold,
     edgeExpansion: settings.edgeExpansion, smoothing: settings.smoothing,
-    ...layer.defaults, ...settings.overrides[pcbLayerKey(side, layer.id)],
+    ...(settings.processingMode === 'color' ? getPcbParameters(settings) : {}),
+    ...layer.defaults, ...getPcbOverrides(settings)[pcbLayerKey(side, layer.id)],
+    processingMode: settings.processingMode,
+    maskIsLight: .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2] > 210,
   };
+}
+
+/** Color identification follows the reference tool's HSV/finish approach. */
+export function isPcbMetal(r: number, g: number, b: number, options: PcbLayerSettings): boolean {
+  const high = Math.max(r,g,b), low = Math.min(r,g,b), difference = high-low;
+  const saturation = high ? difference/high*100 : 0;
+  let hue = difference === 0 ? 0 : high === r ? (g-b)/difference : high === g ? (b-r)/difference+2 : (r-g)/difference+4;
+  hue = (hue*60+360)%360;
+  if (options.finish === 'hasl') return high >= options.silverThreshold && (saturation < 16 || (hue > 160 && hue < 260));
+  const distance = Math.abs(hue-options.metalHue);
+  return Math.min(distance,360-distance) <= options.hueTolerance && saturation >= options.saturationThreshold && high >= options.metalBrightness;
 }
 
 function smoothTones(tones: Float32Array, pixels: RasterPixels, radius: number) {
@@ -77,6 +93,7 @@ export function processPcbPixels(pixels: RasterPixels, options: PcbLayerSettings
   }
   tones = smoothTones(tones, pixels, Math.round(options.smoothing));
   const protectedDetails = new Uint8Array(count);
+  const bare = [1,3,5].map(index => parseInt(options.bareColor.slice(index,index+2),16));
   for (let i = 0; i < count; i++) {
     const p = i * 4;
     if (data[p + 3] < 32) continue;
@@ -92,11 +109,24 @@ export function processPcbPixels(pixels: RasterPixels, options: PcbLayerSettings
       output[i] = options.mode === 'silk' ? PcbMaterial.Silk : PcbMaterial.Gold;
       continue;
     }
-    const max = Math.max(data[p], data[p + 1], data[p + 2]), min = Math.min(data[p], data[p + 1], data[p + 2]);
-    const colored = !photo && max > 0 && (max - min) / max > .28;
+    if (options.processingMode === 'color') {
+      let r = Math.max(0,Math.min(255,(data[p]-128)*options.contrast/100+128+options.brightness));
+      let g = Math.max(0,Math.min(255,(data[p+1]-128)*options.contrast/100+128+options.brightness));
+      let b = Math.max(0,Math.min(255,(data[p+2]-128)*options.contrast/100+128+options.brightness));
+      if (options.invert) {r=255-r;g=255-g;b=255-b;}
+      if (isPcbMetal(r,g,b,options)) {output[i]=PcbMaterial.Gold; continue;}
+      if (options.bareEnabled) {
+        const match = options.bareMethod === 'gray'
+          ? tone >= Math.min(options.bareGrayMin,options.bareGrayMax) && tone <= Math.max(options.bareGrayMin,options.bareGrayMax)
+          : 100*(1-Math.hypot(r-bare[0],g-bare[1],b-bare[2])/(255*Math.sqrt(3))) >= options.bareSimilarity;
+        if (match) {output[i]=PcbMaterial.Substrate; continue;}
+      }
+      const value = options.darkInk || options.maskIsLight ? 255-tone : tone;
+      output[i] = value >= options.silkThreshold ? PcbMaterial.Silk : value >= options.copperThreshold ? PcbMaterial.CoveredCopper : PcbMaterial.Mask;
+      continue;
+    }
     const value = options.darkInk ? 255 - tone : tone;
-    if (colored && value >= options.maskThreshold) output[i] = PcbMaterial.Gold;
-    else if (value >= options.silkThreshold) output[i] = PcbMaterial.Silk;
+    if (value >= options.silkThreshold) output[i] = PcbMaterial.Silk;
     else if (value >= options.maskThreshold) output[i] = PcbMaterial.Gold;
     else output[i] = PcbMaterial.Mask;
   }
