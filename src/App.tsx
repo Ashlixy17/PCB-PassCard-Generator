@@ -29,7 +29,8 @@ export default function App() {
     return DEFAULT_CHARACTERS;
   });
 
-  const defaultChar = DEFAULT_CHARACTERS.find((c) => c.chinese_name === '澄闪') || DEFAULT_CHARACTERS[0];
+  const defaultChar = DEFAULT_CHARACTERS.find((c) => c.english_name === 'Muelsyse') || DEFAULT_CHARACTERS[0];
+  const defaultColor = defaultChar.base_color || defaultChar.back_color || '#0d1b2a';
 
   const [mode, setMode] = useState<'existing' | 'custom'>('existing');
   const [activeCharacter, setActiveCharacter] = useState<CharacterRecord | null>(defaultChar);
@@ -43,21 +44,22 @@ export default function App() {
     profession: defaultChar.profession,
     profession_en: defaultChar.profession_en,
     barcode_text: defaultChar.barcode_text || defaultChar.english_name,
-    back_color: defaultChar.base_color || defaultChar.back_color || '#ff96d2',
-    base_color: defaultChar.base_color || defaultChar.back_color || '#ff96d2',
-    show_icon: true,
-    faction: defaultChar.faction || '维多利亚',
+    back_color: defaultColor,
+    base_color: defaultColor,
+    show_icon: defaultChar.show_icon !== false,
+    faction: defaultChar.faction || '罗德岛',
+    elite_phase: defaultChar.elite_phase || 'E1',
   });
 
   // 3. E1 Advanced Styling State
   const [e1Opts, setE1Opts] = useState<E1Options>({
     enabled: true,
-    faction: defaultChar.faction || '维多利亚',
+    faction: defaultChar.faction || '罗德岛',
     iconX: 0,
     iconY: 0,
     iconScale: 1.0,
     gradientEnabled: false,
-    frontColor: '#ff96d2',
+    frontColor: defaultColor,
     gradColor: '#1e3a8a',
   });
 
@@ -184,7 +186,7 @@ export default function App() {
   const handleResetDefaults = () => {
     if (confirm('确定将角色数据库与界面配置重置为初始内置样例数据吗？')) {
       setCharacters(DEFAULT_CHARACTERS);
-      handleSelectCharacter(DEFAULT_CHARACTERS[0]);
+      handleSelectCharacter(defaultChar);
     }
   };
 
@@ -231,7 +233,7 @@ export default function App() {
               onImportDatabase={handleImportDatabase}
               onResetDefaultDatabase={() => {
                 setCharacters(DEFAULT_CHARACTERS);
-                handleSelectCharacter(DEFAULT_CHARACTERS[0]);
+                handleSelectCharacter(defaultChar);
               }}
             />
 
