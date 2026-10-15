@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import {Archive} from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {Archive,FolderOpen,Loader2} from 'lucide-react';
 import { CharacterRecord, E1Options, PassCardInfo } from './types';
 import {PcbSettings,PCB_DEFAULTS,normalizePcbSettings} from './types/pcb';
 import { DEFAULT_CHARACTERS } from './data/defaultCharacters';
@@ -8,6 +8,8 @@ import { PassEditorForm } from './components/PassEditorForm';
 import { PcbPreview } from './components/PcbPreview';
 import { ImageCropperModal } from './components/ImageCropperModal';
 import { PcbExportModal } from './components/PcbExportModal';
+import {ImportedPcbProject,PcbModelSize} from './types/pcbProject';
+import {readPcbArchive} from './utils/pcbProject';
 
 const LOCAL_STORAGE_DB_KEY = 'PASS_CARD_GEN_CHARACTERS_V2';
 const PCB_SETTINGS_KEY = 'PASS_CARD_GEN_PCB_SETTINGS_V1';
@@ -48,10 +50,9 @@ export default function App() {
     base_color: defaultColor,
     show_icon: defaultChar.show_icon !== false,
     faction: defaultChar.faction || '罗德岛',
-    elite_phase: defaultChar.elite_phase || 'E1',
   });
 
-  // 3. E1 Advanced Styling State
+  // 3. Logo Layout State
   const [e1Opts, setE1Opts] = useState<E1Options>({
     enabled: true,
     faction: defaultChar.faction || '罗德岛',
@@ -76,6 +77,14 @@ export default function App() {
     catch{return {...PCB_DEFAULTS,overrides:{}};}
   });
   const [pcbDetailRequest,setPcbDetailRequest]=useState(0);
+  const [modelSize,setModelSize]=useState<PcbModelSize>({width:59,thickness:1.6});
+  const [importedBoard,setImportedBoard]=useState<ImportedPcbProject|null>(null);
+  const [importing,setImporting]=useState(false);
+  const [importMessage,setImportMessage]=useState('');
+  const [importError,setImportError]=useState('');
+  const [boardRevision,setBoardRevision]=useState(0);
+  const boardFileInput=useRef<HTMLInputElement|null>(null);
+  const templatePreferences=useRef<{settings:PcbSettings;size:PcbModelSize}|null>(null);
   useEffect(()=>{
     try{localStorage.setItem(PCB_SETTINGS_KEY,JSON.stringify(pcbSettings));}
     catch(error){console.warn('PCB 参数未能保存到本地',error);}
@@ -84,6 +93,35 @@ export default function App() {
   // 6. Modals
   const [isCropModalOpen, setIsCropModalOpen] = useState<boolean>(false);
   const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState<boolean>(false);
+
+  const handleImportPcb=async(file:File)=>{
+    setImporting(true);setImportError('');
+    try {
+      if(file.size>100*1024*1024)throw new Error('ZIP 文件超过 100 MB');
+      const project=await readPcbArchive(await file.arrayBuffer(),file.name);
+      if(project.kind==='board') {
+        if(!importedBoard)templatePreferences.current={settings:pcbSettings,size:modelSize};
+        setImportedBoard(project);
+      } else {
+        templatePreferences.current=null;setImportedBoard(null);
+        const restored=project.inputs;
+        setInfo(restored.info);setE1Opts(restored.e1Opts);
+        setFrontPhotoUrl(restored.frontPhotoUrl);setCutoutPhotoUrl(restored.cutoutPhotoUrl);setCustomIconUrl(restored.customIconUrl);
+        setRawFrontPhotoUrl(project.rawFrontPhotoUrl||restored.frontPhotoUrl);setRawCutoutPhotoUrl(project.rawCutoutPhotoUrl||restored.cutoutPhotoUrl);
+        const character=characters.find(item=>item.id===restored.info.id&&item.english_name===restored.info.english_name)||null;
+        setActiveCharacter(character);setMode(character?'existing':'custom');
+      }
+      setPcbSettings(project.settings);setModelSize(project.modelSize);
+      setIsCropModalOpen(false);setIsBatchExportModalOpen(false);setPcbDetailRequest(0);setBoardRevision(value=>value+1);
+      setImportMessage(`${project.name}：${project.notice}`);
+    }catch(error){setImportError(error instanceof Error?error.message:'导入板面失败');}
+    finally{setImporting(false);}
+  };
+  const returnToTemplate=()=>{
+    if(templatePreferences.current){setPcbSettings(templatePreferences.current.settings);setModelSize(templatePreferences.current.size);}
+    templatePreferences.current=null;setImportedBoard(null);setImportMessage('');setImportError('');setPcbDetailRequest(0);setBoardRevision(value=>value+1);
+  };
+  const previewInputs=importedBoard?.inputs||{info,e1Opts,frontPhotoUrl,cutoutPhotoUrl,customIconUrl};
 
   // Save character DB to localStorage on changes
   useEffect(() => {
@@ -106,7 +144,6 @@ export default function App() {
       base_color: mainColor,
       show_icon: char.show_icon !== false,
       faction: char.faction || '罗德岛',
-      elite_phase: char.elite_phase || 'E1',
     });
     setE1Opts((prev) => ({
       ...prev,
@@ -205,6 +242,12 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            <input ref={boardFileInput} type="file" accept=".zip,application/zip" aria-label="导入 PCB ZIP" hidden onChange={event=>{
+              const file=event.target.files?.[0];event.target.value='';if(file)void handleImportPcb(file);
+            }}/>
+            <button type="button" disabled={importing} onClick={()=>boardFileInput.current?.click()} className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm">
+              {importing?<Loader2 className="w-4 h-4 animate-spin"/>:<FolderOpen className="w-4 h-4"/>}{importing?'正在导入…':'导入已保存板'}
+            </button>
             <button
               onClick={() => setIsBatchExportModalOpen(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl pcg-primary text-white font-medium text-xs sm:text-sm transition shadow-lg shadow-purple-500/20"
@@ -218,9 +261,18 @@ export default function App() {
 
       {/* Main Workspace */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        {importError&&<p className="pcb-import-message pcb-error" role="alert">{importError}</p>}
+        {importMessage&&!importedBoard&&<p className="pcb-import-message pcb-help" role="status">{importMessage}</p>}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column: Database Panel & Form Controls (7 cols) */}
           <div className="lg:col-span-7 space-y-6">
+            {importedBoard?<section className="pcb-import-summary" aria-labelledby="pcb-import-title">
+              <h2 id="pcb-import-title"><FolderOpen size={19}/>已导入：{importedBoard.name}</h2>
+              <p className="pcb-help">{importedBoard.notice}</p>
+              <p className="pcb-help">已恢复{importedBoard.availableSides.map(side=>side==='front'?'正面':'背面').join('、')}，分辨率 590 × 1180 px。</p>
+              <p className="pcb-help">右侧可查看成品、制造图层和 3D 模型，阻焊颜色可直接修改。</p>
+              <button type="button" onClick={returnToTemplate}>返回模板编辑</button>
+            </section>:<>
             {/* Database Panel */}
             <CharacterDatabasePanel
               characters={characters}
@@ -253,17 +305,21 @@ export default function App() {
               onOpenCropModal={() => setIsCropModalOpen(true)}
               onOpenIconAdjustModal={() => setPcbDetailRequest(value=>value+1)}
             />
+            </>}
           </div>
 
           {/* Right Column: Live High-Res Canvas Preview (5 cols) */}
           <div className="pcb-preview-column lg:col-span-5 lg:sticky lg:top-20">
             <PcbPreview
-              inputs={{info,e1Opts,frontPhotoUrl,cutoutPhotoUrl,customIconUrl}}
+              key={boardRevision}
+              inputs={previewInputs}
               settings={pcbSettings}
               onChange={setPcbSettings}
               onE1OptsChange={setE1Opts}
               detailRequest={pcbDetailRequest}
               onExport={()=>setIsBatchExportModalOpen(true)}
+              modelSize={modelSize}
+              onModelSizeChange={setModelSize}
             />
           </div>
         </div>
@@ -284,12 +340,17 @@ export default function App() {
       <PcbExportModal
         isOpen={isBatchExportModalOpen}
         onClose={() => setIsBatchExportModalOpen(false)}
-        currentInfo={info}
-        e1Opts={e1Opts}
-        frontPhotoUrl={frontPhotoUrl}
-        cutoutPhotoUrl={cutoutPhotoUrl}
-        customIconUrl={customIconUrl}
+        currentInfo={previewInputs.info}
+        e1Opts={previewInputs.e1Opts}
+        frontPhotoUrl={previewInputs.frontPhotoUrl}
+        cutoutPhotoUrl={previewInputs.cutoutPhotoUrl}
+        customIconUrl={previewInputs.customIconUrl}
         pcbSettings={pcbSettings}
+        modelSize={modelSize}
+        rawFrontPhotoUrl={importedBoard?undefined:rawFrontPhotoUrl}
+        rawCutoutPhotoUrl={importedBoard?undefined:rawCutoutPhotoUrl}
+        savedBoards={previewInputs.savedBoards}
+        availableSides={importedBoard?.availableSides}
       />
     </div>
   );

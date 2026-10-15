@@ -4,7 +4,7 @@ import {PcbBoard, PcbScene, RasterPixels, composePcbLayers, getPcbLayerSettings,
 export type PcbQuality = 'draft' | 'full';
 const DRAFT_SCALE = .4;
 
-function optionsKey(value: PcbLayerSettings): string {
+export function pcbOptionsKey(value: PcbLayerSettings): string {
   if (!value.enabled) return 'hidden';
   if (['mask', 'copper', 'fr4'].includes(value.mode)) return value.mode;
   const base: (string | number)[] = [value.mode, value.edgeExpansion];
@@ -40,6 +40,7 @@ export class PcbProcessingCache {
 
   compose(source: PcbScene, settings: PcbSettings, quality: PcbQuality = 'full'): PcbBoard {
     this.stats = {processedLayers: 0, reusedLayers: 0, composed: false};
+    if (source.board) return source.board;
     const scale = quality === 'draft' ? DRAFT_SCALE : 1;
     let scene = source;
     if (scale !== 1) {
@@ -66,7 +67,7 @@ export class PcbProcessingCache {
         options.edgeExpansion = Math.round(options.edgeExpansion * scale);
         options.smoothing = Math.round(options.smoothing * scale);
       }
-      const key = `${scene.side}:${quality}:${layer.id}`, signature = optionsKey(options), photo = !!layer.photo;
+      const key = `${scene.side}:${quality}:${layer.id}`, signature = pcbOptionsKey(options), photo = !!layer.photo;
       const cached = this.layers.get(key);
       if (cached && cached.pixels === layer.pixels && cached.options === signature && cached.photo === photo) {
         this.stats.reusedLayers++;

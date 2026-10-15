@@ -18,6 +18,7 @@ export interface PcbInputs {
   cutoutPhotoUrl: string;
   customIconUrl: string;
   backLogo?: PcbBackLogoLayout;
+  savedBoards?: Record<PcbSide,PcbBoard>;
 }
 
 function newCanvas() {
@@ -68,6 +69,10 @@ function factionDefaults(image: HTMLImageElement): Partial<PcbLayerSettings> {
 }
 
 export async function buildPcbScenes(inputs: PcbInputs, signal?: AbortSignal): Promise<Record<PcbSide, PcbScene>> {
+  if (inputs.savedBoards) return Object.fromEntries((['front','back'] as const).map(side=>{
+    const board=inputs.savedBoards![side];
+    return [side,{side,width:board.width,height:board.height,boardMask:board.boardMask,layers:[],board}];
+  })) as Record<PcbSide,PcbScene>;
   await ensureFontsLoaded();
   if (signal?.aborted) throw new DOMException('Source request replaced', 'AbortError');
   const factionSrc = inputs.customIconUrl || getFactionIconUrl(inputs.info.faction);
@@ -84,7 +89,7 @@ export async function buildPcbScenes(inputs: PcbInputs, signal?: AbortSignal): P
   ]);
   if (signal?.aborted) throw new DOMException('Source request replaced', 'AbortError');
   const scenes = {} as Record<PcbSide,PcbScene>;
-  const {info,e1Opts} = inputs, isE2 = info.elite_phase === 'E2';
+  const {info,e1Opts} = inputs;
   for (const side of ['front','back'] as const) {
     const back = side === 'back', layers: PcbSourceLayer[] = [];
     const add = (id: string,label: string,draw: (ctx: CanvasRenderingContext2D) => void,defaults?: Partial<PcbLayerSettings>,isPhoto=false,dependencies: unknown[] = []) => {
@@ -106,10 +111,10 @@ export async function buildPcbScenes(inputs: PcbInputs, signal?: AbortSignal): P
       if (isImageValid(photo)) add('photo','人物完整图',ctx => fittedImage(ctx,photo,baseImage),undefined,true,[photo,baseImage]);
       if (isImageValid(cutout)) add('cutout','透明人物抠图',ctx => fittedImage(ctx,cutout,baseImage),undefined,true,[cutout,baseImage]);
     }
-    if (!isE2 && isImageValid(baseboard)) add('baseboard','下方底板',ctx => {
+    if (isImageValid(baseboard)) add('baseboard','下方底板',ctx => {
       ctx.drawImage(baseboard,0,685,590,495);
     },{mode:'copper'},false,[baseboard]);
-    if (!isE2 && info.show_icon && isImageValid(faction)) {
+    if (info.show_icon && isImageValid(faction)) {
       const pos = getFactionIconPos(info.faction);
       add('faction','阵营 Logo（原始纹理）',ctx => ctx.drawImage(faction,pos.x + e1Opts.iconX,pos.y + e1Opts.iconY,(inputs.customIconUrl ? faction.width : pos.w) * e1Opts.iconScale,(inputs.customIconUrl ? faction.height : pos.h) * e1Opts.iconScale),
         factionDefaults(faction),false,[faction,info.faction,!!inputs.customIconUrl,e1Opts.iconX,e1Opts.iconY,e1Opts.iconScale]);

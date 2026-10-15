@@ -5,11 +5,14 @@ import {E1Options,PassCardInfo} from '../types';
 import {PcbSettings,PcbSide,PcbView,getPcbViews,getPcbViewLabel,getPcbModeLabel,PCB_FINISH_LABELS} from '../types/pcb';
 import {getPcbLayerSettings} from '../utils/pcbProcessing';
 import {exportPcbImages,pcbImageBlob} from '../utils/pcbWorkerClient';
+import {PcbInputs} from '../utils/pcbRenderer';
+import {PcbModelSize} from '../types/pcbProject';
+import {appendPcbProject,pcbProjectName} from '../utils/pcbProject';
 
-interface Props {isOpen:boolean;onClose:()=>void;currentInfo:PassCardInfo;e1Opts:E1Options;frontPhotoUrl:string;cutoutPhotoUrl:string;customIconUrl:string;pcbSettings:PcbSettings}
+interface Props {isOpen:boolean;onClose:()=>void;currentInfo:PassCardInfo;e1Opts:E1Options;frontPhotoUrl:string;cutoutPhotoUrl:string;customIconUrl:string;pcbSettings:PcbSettings;modelSize:PcbModelSize;rawFrontPhotoUrl?:string;rawCutoutPhotoUrl?:string;savedBoards?:PcbInputs['savedBoards'];availableSides?:PcbSide[]}
 
-export function PcbExportModal({isOpen,onClose,currentInfo,e1Opts,frontPhotoUrl,cutoutPhotoUrl,customIconUrl,pcbSettings}:Props) {
-  const [kinds,setKinds]=useState({front:true,back:true,appearance:true,layers:true,outline:true});
+export function PcbExportModal({isOpen,onClose,currentInfo,e1Opts,frontPhotoUrl,cutoutPhotoUrl,customIconUrl,pcbSettings,modelSize,rawFrontPhotoUrl,rawCutoutPhotoUrl,savedBoards,availableSides}:Props) {
+  const [kinds,setKinds]=useState({front:true,back:true,appearance:true,layers:true,outline:true,project:true});
   const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');
   if(!isOpen)return null;
   const exportFiles=async()=>{
@@ -19,10 +22,11 @@ export function PcbExportModal({isOpen,onClose,currentInfo,e1Opts,frontPhotoUrl,
       const views:PcbView[]=[];
       if(kinds.appearance)views.push('appearance');
       if(kinds.layers)views.push(...getPcbViews(pcbSettings).filter(view=>view!=='appearance'));
-      const {scenes,images}=await exportPcbImages({info:currentInfo,e1Opts,frontPhotoUrl,cutoutPhotoUrl,customIconUrl},pcbSettings,
+      const inputs={info:currentInfo,e1Opts,frontPhotoUrl,cutoutPhotoUrl,customIconUrl,savedBoards};
+      const {scenes,images}=await exportPcbImages(inputs,pcbSettings,
         {sides:(['front','back'] as PcbSide[]).filter(side=>kinds[side]),views,outline:kinds.outline});
       const zip=new JSZip();
-      const name=`${currentInfo.english_name||currentInfo.id}_${currentInfo.chinese_name||''}`.replace(/[\\/:*?"<>|]/g,'').replace(/^\.+|\.+$/g,'')||'PCB_Card';
+      const name=pcbProjectName(currentInfo);
       const folder=zip.folder(name)||zip;
       for(const side of ['front','back'] as PcbSide[]) {
         if(!kinds[side])continue;
@@ -37,6 +41,10 @@ export function PcbExportModal({isOpen,onClose,currentInfo,e1Opts,frontPhotoUrl,
       }
       folder.file('处理参数.json',JSON.stringify({resolution:{width:590,height:1180,units:'px',origin:'top-left'},processingMode:pcbSettings.processingMode,surfaceFinish:pcbSettings.processingMode==='color'?pcbSettings.color.finish.toUpperCase():'ENIG',settings:pcbSettings,layout:e1Opts,
         sources:Object.fromEntries((['front','back'] as const).map(side=>[side,scenes[side].layers.map(layer=>({id:layer.id,label:layer.label,x:layer.x,y:layer.y,width:layer.pixels.width,height:layer.pixels.height,processing:getPcbLayerSettings(pcbSettings,side,layer)}))]))},null,2));
+      if(kinds.project) {
+        setMessage('正在保存可再次导入的工程数据…');
+        await appendPcbProject(folder,{inputs,settings:pcbSettings,modelSize,rawFrontPhotoUrl,rawCutoutPhotoUrl},name,availableSides);
+      }
       folder.file('图层说明.txt',`PCB 分层图片说明\n工艺：${getPcbModeLabel(pcbSettings)}\n\n所有 PNG 使用统一的 590 × 1180 像素坐标。\nSilkS：黑色有效区域表示丝印油墨。\nCu：黑色有效区域表示保留铜。\nMask：黑色有效区域表示去除阻焊、开窗。\n${pcbSettings.processingMode==='color'?`${pcbSettings.color.finish.toUpperCase()}：金属区域（铜与开窗交集）。\nCoveredCu：可见的阻焊下覆铜区域。\nSubstrate：无铜且开窗的裸基材区域。\n这些材料区域图供检查和导入参考，实际制造仍使用 Cu、Mask、SilkS。\n`:''}板形蒙版：黑色区域表示板体，透明区域表示板外或孔。\n正背面分别从各自面向观察者的方向显示。\n\n这些文件是效果图与二值分层 PNG，不是 Gerber；用于制造前需在 PCB 工具中指定实际尺寸、生成制造文件并核对线宽与间距。\n`);
       setMessage('正在打包分层图片…');
       const blob=await zip.generateAsync({type:'blob'}),url=URL.createObjectURL(blob),link=document.createElement('a');
@@ -50,12 +58,13 @@ export function PcbExportModal({isOpen,onClose,currentInfo,e1Opts,frontPhotoUrl,
       <div className="my-5 space-y-4">
         <p className="text-sm text-slate-400">当前工艺：{getPcbModeLabel(pcbSettings)}{pcbSettings.processingMode==='color'?` · ${PCB_FINISH_LABELS[pcbSettings.color.finish]}`:''}</p>
         <p className="pcb-help">分层内容：{getPcbViews(pcbSettings).filter(view=>view!=='appearance').map(view=>getPcbViewLabel(view,pcbSettings)).join('、')}。</p>
-        <div className="grid grid-cols-2 gap-3 text-sm">{[{key:'front',label:'PCB 正面'},{key:'back',label:'PCB 背面'},{key:'appearance',label:'成品效果图'},{key:'layers',label:pcbSettings.processingMode==='color'?'工艺与制造分层':'丝印／铜／开窗分层'},{key:'outline',label:'板形蒙版'}].map(item=><label key={item.key} className="pcb-checkbox"><input type="checkbox" disabled={busy} checked={kinds[item.key as keyof typeof kinds]} onChange={event=>setKinds({...kinds,[item.key]:event.target.checked})}/>{item.label}</label>)}</div>
+        <div className="grid grid-cols-2 gap-3 text-sm">{[{key:'front',label:'PCB 正面'},{key:'back',label:'PCB 背面'},{key:'appearance',label:'成品效果图'},{key:'layers',label:pcbSettings.processingMode==='color'?'工艺与制造分层':'丝印／铜／开窗分层'},{key:'outline',label:'板形蒙版'},{key:'project',label:savedBoards?'板面恢复数据':'可编辑工程数据'}].map(item=><label key={item.key} className="pcb-checkbox"><input type="checkbox" disabled={busy} checked={kinds[item.key as keyof typeof kinds]} onChange={event=>setKinds({...kinds,[item.key]:event.target.checked})}/>{item.label}</label>)}</div>
+        <p className="pcb-help">{savedBoards?'板面恢复数据保存当前制造图层、配色和尺寸；旧文件缺失的原始素材无法补回。':'保留“可编辑工程数据”，再次导入时可恢复上传图片、文字、分层参数和板材尺寸。'}</p>
         <p className="pcb-help">分层文件为 PNG，实际尺寸与制造规则需在 PCB 工具中确认。</p>
         {busy&&<p className="flex items-center gap-2 text-blue-400" role="status"><Loader2 size={16} className="animate-spin"/>{message}</p>}
         {error&&<p className="pcb-error" role="alert">{error}</p>}
       </div>
-      <div className="flex justify-end gap-3 pt-4 border-t border-slate-800"><button type="button" disabled={busy} onClick={onClose} className="px-4 py-2">取消</button><button type="button" disabled={busy||(!kinds.front&&!kinds.back)||(!kinds.appearance&&!kinds.layers&&!kinds.outline)} onClick={exportFiles} className="pcg-primary flex items-center gap-2 px-4 py-2"><Download size={16}/>打包下载 ZIP</button></div>
+      <div className="flex justify-end gap-3 pt-4 border-t border-slate-800"><button type="button" disabled={busy} onClick={onClose} className="px-4 py-2">取消</button><button type="button" disabled={busy||(!kinds.front&&!kinds.back)||(!kinds.appearance&&!kinds.layers&&!kinds.outline&&!kinds.project)} onClick={exportFiles} className="pcg-primary flex items-center gap-2 px-4 py-2"><Download size={16}/>打包下载 ZIP</button></div>
     </div>
   </div>;
 }

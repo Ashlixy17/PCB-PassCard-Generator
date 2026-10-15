@@ -1,6 +1,6 @@
 import {PcbExportImage, PcbExportPlan, PcbScenePatch, PcbScenes, PcbSideFrames, PcbWorkerJob, PcbWorkerRequest, PcbWorkerResponse} from '../types/pcbWorker';
 import {PcbSettings, PcbSide, PcbView} from '../types/pcb';
-import {PcbSourceLayer} from './pcbProcessing';
+import {PcbBoard,PcbSourceLayer} from './pcbProcessing';
 import {LatestTaskQueue, QueuedTask} from './latestTaskQueue';
 import {PcbInputs, buildPcbScenes} from './pcbRenderer';
 
@@ -13,11 +13,12 @@ export class PcbWorkerClient {
   private queue: LatestTaskQueue<PcbWorkerJob, PcbExportImage[]>;
   private sentSources = new Map<string, PcbSourceLayer>();
   private sentMasks = new Map<PcbSide, Uint8Array>();
+  private sentBoards = new Map<PcbSide,PcbBoard>();
   private running: {task: QueuedTask<PcbWorkerJob>; resolve: (images: PcbExportImage[]) => void; reject: (error: Error) => void} | null = null;
   closed = false;
 
-  constructor() {
-    this.worker = new Worker(new URL('../workers/pcb.worker.ts', import.meta.url), {type: 'module'});
+  constructor(worker?: Worker) {
+    this.worker = worker || new Worker(new URL('../workers/pcb.worker.ts', import.meta.url), {type: 'module'});
     this.queue = new LatestTaskQueue(task => this.execute(task));
     this.worker.onmessage = event => {
       const message = event.data as PcbWorkerResponse, running = this.running;
@@ -49,21 +50,27 @@ export class PcbWorkerClient {
   dispose(error = new Error('PCB processor closed')) {
     this.closed = true;
     this.queue.dispose(error); this.running?.reject(error); this.running = null;
-    this.worker.terminate(); this.sentSources.clear(); this.sentMasks.clear();
+    this.worker.terminate(); this.sentSources.clear(); this.sentMasks.clear();this.sentBoards.clear();
   }
 
   private patchScenes(scenes: PcbScenes): Record<PcbSide, PcbScenePatch> {
     return Object.fromEntries((['front', 'back'] as const).map(side => {
       const scene = scenes[side];
+      const present=new Set(scene.layers.map(layer=>`${side}:${layer.id}`));
+      // The worker releases removed sources. Forget our matching sent entries
+      // too, so re-enabling the same immutable source uploads its pixels again.
+      for (const key of this.sentSources.keys()) if (key.startsWith(`${side}:`)&&!present.has(key)) this.sentSources.delete(key);
       const boardMask = this.sentMasks.get(side) === scene.boardMask ? undefined : scene.boardMask;
       this.sentMasks.set(side, scene.boardMask);
+      const board=this.sentBoards.get(side)===scene.board?undefined:scene.board||null;
+      if(scene.board)this.sentBoards.set(side,scene.board);else this.sentBoards.delete(side);
       const layers = scene.layers.map(layer => {
         const key = `${side}:${layer.id}`, previous = this.sentSources.get(key);
         this.sentSources.set(key, layer);
         // Do not detach the immutable source buffers; the main thread reuses them.
         return {...layer, pixels: previous?.pixels === layer.pixels ? undefined : layer.pixels};
       });
-      return [side, {...scene, layers, boardMask}];
+      return [side, {...scene, layers, boardMask, board}];
     })) as Record<PcbSide, PcbScenePatch>;
   }
 

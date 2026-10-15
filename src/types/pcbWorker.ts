@@ -1,13 +1,14 @@
 import {PcbSettings, PcbSide, PcbView} from './pcb';
-import {PcbScene, PcbSourceLayer, RasterPixels} from '../utils/pcbProcessing';
+import {PcbBoard, PcbScene, PcbSourceLayer, RasterPixels} from '../utils/pcbProcessing';
 import {PcbQuality} from '../utils/pcbProcessingCache';
 
 export type PcbScenes = Record<PcbSide, PcbScene>;
-export interface PcbScenePatch extends Omit<PcbScene, 'layers' | 'boardMask'> {
+export interface PcbScenePatch extends Omit<PcbScene, 'layers' | 'boardMask' | 'board'> {
   boardMask?: Uint8Array;
+  board?: PcbBoard | null;
   layers: (Omit<PcbSourceLayer, 'pixels'> & {pixels?: RasterPixels})[];
 }
-export interface PcbFrame {width: number; height: number; bitmap?: ImageBitmap; pixels?: Uint8ClampedArray}
+export interface PcbFrame {width: number; height: number; bitmap?: ImageBitmap; pixels?: Uint8ClampedArray; backend?: 'gpu' | 'cpu'}
 export type PcbTextureView = PcbView | 'surface' | 'height';
 export type PcbSideFrames = Partial<Record<PcbTextureView, PcbFrame>>;
 export type PcbFrames = Partial<Record<PcbSide, PcbSideFrames>>;

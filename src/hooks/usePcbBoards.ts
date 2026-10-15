@@ -4,7 +4,6 @@ import {PcbFrame, PcbFrames, PcbScenes} from '../types/pcbWorker';
 import {PcbInputs, buildPcbScenes} from '../utils/pcbRenderer';
 import {getPcbWorkerClient, closePcbFrames} from '../utils/pcbWorkerClient';
 import {SupersededTaskError} from '../utils/latestTaskQueue';
-import {PcbQuality} from '../utils/pcbProcessingCache';
 
 export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: PcbSide, interacting: boolean, include3d=false) {
   const [scenes, setScenes] = useState<PcbScenes | null>(null);
@@ -15,12 +14,9 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
   const priority = useRef(side); priority.current = side;
   const generation = useRef(0);
   const ownedFrames = useRef(new Set<PcbFrame>());
-  const currentFrames = useRef(frames);
-  const previous = useRef<{scenes: PcbScenes; parameters: string} | null>(null);
 
   // Child canvas layout effects copy the bitmaps before old versions are closed.
   useLayoutEffect(() => {
-    currentFrames.current = frames;
     const keep = new Set(Object.values(frames).flatMap(face => Object.values(face)));
     for (const frame of ownedFrames.current) if (!keep.has(frame)) {
       frame.bitmap?.close(); ownedFrames.current.delete(frame);
@@ -44,27 +40,23 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
       }
     }).finally(() => { if (!controller.signal.aborted) setSourceLoading(false); });
     return () => controller.abort();
-  }, [inputs.info, inputs.e1Opts, inputs.frontPhotoUrl, inputs.cutoutPhotoUrl, inputs.customIconUrl,settings.backLogo]);
+  }, [inputs.info, inputs.e1Opts, inputs.frontPhotoUrl, inputs.cutoutPhotoUrl, inputs.customIconUrl,inputs.savedBoards,settings.backLogo]);
 
   useEffect(() => {
     if (!scenes || sourceLoading) return;
     const version = ++generation.current;
-    const parameters = JSON.stringify([settings.processingMode, settings.processingMode === 'color' ? settings.color : [settings.silkThreshold,settings.maskThreshold,settings.edgeExpansion,settings.smoothing,settings.overrides]]);
-    const paletteOnly = previous.current?.scenes === scenes && previous.current.parameters === parameters;
-    previous.current = {scenes, parameters};
     let client: ReturnType<typeof getPcbWorkerClient> | undefined;
-    let refine: ReturnType<typeof setTimeout> | undefined;
     let active = true;
     setProcessing(true); setError('');
-    const render = (quality: PcbQuality) => {
+    const render = () => {
       try {
         client ||= getPcbWorkerClient();
-        void client.preview({scenes, settings, side: priority.current, quality, include3d, onSide: (face, update) => {
+        void client.preview({scenes, settings, side: priority.current, quality:'full', include3d, onSide: (face, update) => {
           if (!active || version !== generation.current) { closePcbFrames(update); return; }
           for (const frame of Object.values(update)) ownedFrames.current.add(frame);
           setFrames(previous => ({...previous, [face]: update}));
         }}).then(() => {
-          if (active && version === generation.current && quality === 'full') setProcessing(false);
+          if (active && version === generation.current) setProcessing(false);
         }).catch(error => {
           if (!(error instanceof SupersededTaskError) && active && version === generation.current) {
             setError(error instanceof Error ? error.message : 'PCB 分层处理失败'); setProcessing(false);
@@ -74,21 +66,16 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
         if (active) { setError(error instanceof Error ? error.message : '无法启动后台处理器'); setProcessing(false); }
       }
     };
-    const scheduled = requestAnimationFrame(() => {
-      if (interacting) render('draft');
-      else if (paletteOnly || !currentFrames.current.front) render('full');
-      else {
-        render('draft');
-        refine = setTimeout(() => render('full'), 100);
-      }
-    });
+    // Coalesce input events to one request per animation frame without lowering
+    // resolution. Worker/GPU caches reuse everything unaffected by the change.
+    const scheduled = requestAnimationFrame(render);
     return () => {
       active = false;
-      cancelAnimationFrame(scheduled); clearTimeout(refine);
+      cancelAnimationFrame(scheduled);
       client?.cancelPreview();
     };
     // Side changes select cached canvases without scheduling pixel work.
-  }, [scenes, sourceLoading, settings, interacting, include3d]);
+  }, [scenes, sourceLoading, settings, include3d]);
 
   return {scenes, frames, busy: sourceLoading || processing || interacting, error};
 }

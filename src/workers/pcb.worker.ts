@@ -4,12 +4,21 @@ import {PcbBoard, PcbScene, RasterPixels} from '../utils/pcbProcessing';
 import {PcbProcessingCache} from '../utils/pcbProcessingCache';
 import {createPcbRaster} from '../utils/pcbRaster';
 import {createPcbSurfaceMaps} from '../utils/pcb3dTextures';
+import {PcbGpuProcessor} from '../utils/pcbGpuProcessing';
 
 const scope = self as unknown as {
   onmessage: (event: MessageEvent<PcbWorkerRequest>) => void;
   postMessage: (message: PcbWorkerResponse, transfer?: Transferable[]) => void;
 };
 const processor = new PcbProcessingCache();
+let gpu: PcbGpuProcessor | null | undefined;
+function gpuProcessor() {
+  if (gpu===undefined) {
+    try {gpu=new PcbGpuProcessor();}
+    catch (error) {gpu=null;console.info('PCB 预览使用完整精度 CPU 后台计算',error);}
+  }
+  return gpu;
+}
 const scenes = new Map<PcbSide, PcbScene>();
 const sources = new Map<string, RasterPixels>();
 let cancelledUntil = 0;
@@ -27,7 +36,10 @@ function applyScene(patch: PcbScenePatch): PcbScene {
     if (!pixels) throw new Error(`缺少 PCB 素材：${layer.label}`);
     return {...layer, pixels};
   });
-  const scene = {...patch, boardMask, layers};
+  const board=patch.board===undefined?scenes.get(patch.side)?.board:patch.board||undefined;
+  const scene = {...patch, boardMask, layers,board};
+  const present=new Set(layers.map(layer=>`${patch.side}:${layer.id}`));
+  for (const key of sources.keys()) if (key.startsWith(`${patch.side}:`)&&!present.has(key)) sources.delete(key);
   scenes.set(patch.side, scene);
   return scene;
 }
@@ -59,9 +71,9 @@ function imageFor(board: PcbBoard, settings: PcbSettings, view: PcbTextureView |
 
 async function previewFrame(image: CachedImage): Promise<PcbFrame> {
   const {width, height, data} = image.raster;
-  if (image.canvas && typeof createImageBitmap !== 'undefined') return {width, height, bitmap: await createImageBitmap(image.canvas)};
+  if (image.canvas && typeof createImageBitmap !== 'undefined') return {width, height, bitmap: await createImageBitmap(image.canvas), backend:'cpu'};
   // Worker still performs the pixel loop when OffscreenCanvas is unavailable.
-  return {width, height, pixels: data.slice()};
+  return {width, height, pixels: data.slice(), backend:'cpu'};
 }
 
 async function process(request: Extract<PcbWorkerRequest, {type: 'process'}>) {
@@ -84,10 +96,25 @@ async function process(request: Extract<PcbWorkerRequest, {type: 'process'}>) {
     const order: PcbSide[] = [request.side, request.side === 'front' ? 'back' : 'front'];
     for (const side of order) {
       if (request.id <= cancelledUntil) break;
-      const board = processor.compose(source[side], request.settings, request.quality);
-      const frames: PcbSideFrames = {};
+      let frames: PcbSideFrames | undefined;
       const views:PcbTextureView[]=[...getPcbViews(request.settings),...(request.include3d?['surface' as const,'height' as const]:[])];
-      for (const view of views) frames[view] = await previewFrame(imageFor(board, request.settings, view, request.quality));
+      // The UI requests full resolution even while a slider is held. Legacy
+      // draft jobs remain available to diagnostics, never to the live editor.
+      if (request.quality==='full') {
+        const accelerated=gpuProcessor();
+        if (accelerated) {
+          try {frames=accelerated.preview(source[side],request.settings,views);}
+          catch (error) {
+            accelerated.dispose();gpu=null;
+            console.warn('PCB GPU 计算不可用，已切换至完整精度后台计算',error);
+          }
+        }
+      }
+      if (!frames) {
+        frames={};
+        const board=processor.compose(source[side],request.settings,request.quality);
+        for (const view of views) frames[view]=await previewFrame(imageFor(board,request.settings,view,request.quality));
+      }
       if (request.id <= cancelledUntil) {
         for (const frame of Object.values(frames)) frame.bitmap?.close();
         break;

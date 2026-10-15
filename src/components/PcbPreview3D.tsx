@@ -130,6 +130,7 @@ export default function PcbPreview3D(props:Props) {
             const full=source.width===maps.width&&source.height===maps.height;
             container.dataset[side+'Quality']=full?'full':'draft';
             container.dataset[side+'SourceSize']=`${source.width}x${source.height}`;
+            container.dataset[side+'Backend']=frames[side]?.appearance?.backend||'cpu';
             if(!full)container.dataset.draftUpdates=String(Number(container.dataset.draftUpdates||0)+1);
           }
           container.dataset[side+'TextureReady']=String(maps.ready);

@@ -13,7 +13,7 @@ function FaceCanvas({frame, side, view, visible}: {key?: string; frame?: PcbFram
     if (frame.bitmap) ctx?.drawImage(frame.bitmap, 0, 0);
     else if (frame.pixels) ctx?.putImageData(new ImageData(frame.pixels, frame.width, frame.height), 0, 0);
   }, [frame]);
-  return <canvas ref={ref} width={590} height={1180} hidden={!visible} aria-label={`${side === 'back' ? 'PCB 背面' : 'PCB 正面'}${view === 'appearance' ? '效果图' : '分层图'}`} data-testid={`pcb-canvas-${side}`} data-quality={frame?.width === 590 ? 'full' : frame ? 'draft' : 'loading'}/>;
+  return <canvas ref={ref} width={590} height={1180} hidden={!visible} aria-label={`${side === 'back' ? 'PCB 背面' : 'PCB 正面'}${view === 'appearance' ? '效果图' : '分层图'}`} data-testid={`pcb-canvas-${side}`} data-quality={frame?.width === 590 ? 'full' : frame ? 'draft' : 'loading'} data-backend={frame?.backend}/>;
 }
 
 export function PcbCanvas({frames, side, view = 'appearance', selection, large = false}: {frames: PcbFrames; side: PcbSide; view?: PcbView; selection?: PcbSourceLayer; large?: boolean}) {

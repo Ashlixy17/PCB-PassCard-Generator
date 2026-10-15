@@ -17,6 +17,8 @@ export interface PcbScene {
   height: number;
   boardMask: Uint8Array;
   layers: PcbSourceLayer[];
+  /** Restored manufacturing data without the original editable artwork. */
+  board?: PcbBoard;
 }
 export interface PcbBoard {
   side: PcbSide;
@@ -148,6 +150,7 @@ export function processPcbPixels(pixels: RasterPixels, options: PcbLayerSettings
 }
 
 export function composePcbScene(scene: PcbScene, settings: PcbSettings): PcbBoard {
+  if (scene.board) return scene.board;
   return composePcbLayers(scene, scene.layers.map(layer =>
     processPcbPixels(layer.pixels, getPcbLayerSettings(settings, scene.side, layer), layer.photo)));
 }

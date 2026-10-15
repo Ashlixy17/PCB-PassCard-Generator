@@ -1,4 +1,4 @@
-import {PCB_DEFAULTS, PcbSide, getPcbViews} from '../src/types/pcb';
+import {PCB_DEFAULTS, PcbSide, getPcbViews, patchPcbSettings} from '../src/types/pcb';
 import {PcbScenes, PcbSideFrames} from '../src/types/pcbWorker';
 import {composePcbScene} from '../src/utils/pcbProcessing';
 import {createPcbRaster} from '../src/utils/pcbRaster';
@@ -118,17 +118,32 @@ button.addEventListener('click', async () => {
     report.exact_color_png_exports_verified=colorExports;
     report.exact_3d_material_maps_verified=surfaceMaps;
     const inputs:PcbInputs={
-      info:{chinese_name:'测试',english_name:'Test',english_name2:'',id:'R001',profession:'近卫',profession_en:'GUARD',barcode_text:'Test',show_icon:true,faction:'罗德岛',elite_phase:'E1'},
+      info:{chinese_name:'测试',english_name:'Test',english_name2:'',id:'R001',profession:'近卫',profession_en:'GUARD',barcode_text:'Test',show_icon:true,faction:'罗德岛'},
       e1Opts:{enabled:true,faction:'罗德岛',iconX:0,iconY:0,iconScale:1,gradientEnabled:false,frontColor:'#174d7c',gradColor:'#174d7c'},
       frontPhotoUrl:'',cutoutPhotoUrl:'',customIconUrl:'',
     };
     const independent=await buildPcbScenes(inputs);
+    check(independent.front.layers.some(layer=>layer.id==='baseboard') && independent.front.layers.some(layer=>layer.id==='faction'),'Front omitted independently adjustable template layers');
+    const legacy=await buildPcbScenes({...inputs,info:{...inputs.info,elite_phase:'E2'}});
+    check(legacy.front.layers.length===independent.front.layers.length && legacy.front.layers.every((layer,i)=>layer===independent.front.layers[i]),'Legacy elite stage still changes front artwork');
+    for(const processingMode of ['gray','color'] as const) {
+      const visibleSettings={...PCB_DEFAULTS,processingMode};
+      const hiddenSettings=patchPcbSettings(visibleSettings,{enabled:false},'front:baseboard');
+      const visible=composePcbScene(legacy.front,visibleSettings);
+      const hidden=composePcbScene(legacy.front,hiddenSettings);
+      check(visible.materials.some((value,i)=>value!==hidden.materials[i]),`${processingMode} baseboard visibility did not change the board`);
+      const restored=composePcbScene(legacy.front,patchPcbSettings(hiddenSettings,{enabled:true},'front:baseboard'));
+      check(restored.materials.every((value,i)=>value===visible.materials[i]),`${processingMode} baseboard did not restore independently`);
+      const backVisible=composePcbScene(legacy.back,visibleSettings),backHidden=composePcbScene(legacy.back,hiddenSettings);
+      check(backVisible.materials.every((value,i)=>value===backHidden.materials[i]),`${processingMode} hiding the front baseboard changed the back`);
+    }
+    report.manual_baseboard_visibility_verified=true;
     check(independent.back.layers.length===1 && independent.back.layers[0].id==='faction','Back inherited front artwork');
     const backLogo=independent.back.layers[0];
     check(Math.abs(backLogo.x+backLogo.pixels.width/2-295)<3 && Math.abs(backLogo.y+backLogo.pixels.height/2-590)<3,'Back logo is not centered');
-    const changed=await buildPcbScenes({...inputs,frontPhotoUrl:canvas.toDataURL(),e1Opts:{...inputs.e1Opts,iconX:100,iconY:-80,iconScale:1.7},info:{...inputs.info,elite_phase:'E2',show_icon:false}});
+    const changed=await buildPcbScenes({...inputs,frontPhotoUrl:canvas.toDataURL(),e1Opts:{...inputs.e1Opts,iconX:100,iconY:-80,iconScale:1.7},info:{...inputs.info,show_icon:false}});
     check(changed.front.layers.some(layer=>layer.id==='photo'),'Front photo fixture was not loaded');
-    check(changed.back.layers.length===1 && changed.back.layers[0]===backLogo,'Front photos, layout or E2 changed the independent back');
+    check(changed.back.layers.length===1 && changed.back.layers[0]===backLogo,'Front photos, layout or logo visibility changed the independent back');
     const moved=await buildPcbScenes({...inputs,backLogo:{x:60,y:40,scale:1.25}});
     check(moved.back.layers[0].x>backLogo.x && moved.back.layers[0].y<backLogo.y,'Back position did not use its independent coordinates');
     check(moved.front.layers.every((layer,i)=>layer===independent.front.layers[i]),'Moving the back invalidated front artwork');

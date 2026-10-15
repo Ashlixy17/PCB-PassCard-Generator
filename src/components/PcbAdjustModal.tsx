@@ -8,6 +8,7 @@ import {PcbFrames} from '../types/pcbWorker';
 import {PcbCanvas} from './PcbCanvas';
 import {PcbColorPicker} from './PcbColorPicker';
 import {PcbModeSwitch} from './PcbModeSwitch';
+import {PCB_BOARD_IMPORT_NOTICE} from '../utils/pcbProject';
 
 interface Props {
   open:boolean;onClose:()=>void;side:PcbSide;onSideChange:(side:PcbSide)=>void;
@@ -18,6 +19,7 @@ interface Props {
   onDownload:(view:PcbView)=>Promise<void>;error?:string;
   displayMode:'2d'|'3d';onDisplayModeChange:(mode:'2d'|'3d')=>void;
   faceRequest:number;widthMm:number;thicknessMm:number;onSizeChange:(width:number,thickness:number)=>void;
+  boardOnly?:boolean;
 }
 
 const PcbPreview3D=lazy(()=>import('./PcbPreview3D'));
@@ -102,7 +104,7 @@ export function PcbAdjustModal(props:Props) {
       }
     }}>
       <header className="pcb-adjust-header">
-        <div><h2 id="pcb-adjust-title"><SlidersHorizontal size={18}/>PCB 详细调整 · {side==='back'?'背面':'正面'}</h2><p>{getPcbModeLabel(settings)} · 素材参数按正反面分别保存</p></div>
+        <div><h2 id="pcb-adjust-title"><SlidersHorizontal size={18}/>PCB {props.boardOnly?'图层查看':'详细调整'} · {side==='back'?'背面':'正面'}</h2><p>{getPcbModeLabel(settings)} · {props.boardOnly?'已保存的制造图层':'素材参数按正反面分别保存'}</p></div>
         <button type="button" className="pcg-primary" onClick={onClose} autoFocus><ArrowLeft size={16}/>完成调整</button>
       </header>
       <div className="pcb-adjust-layout">
@@ -111,6 +113,11 @@ export function PcbAdjustModal(props:Props) {
             <button type="button" className={side==='front'?'active':''} aria-pressed={side==='front'} onClick={()=>{props.onInteractionChange(false);onSideChange('front');}}>正面调整</button>
             <button type="button" className={side==='back'?'active':''} aria-pressed={side==='back'} onClick={()=>{props.onInteractionChange(false);onSideChange('back');}}>背面调整</button>
           </div>
+          {props.boardOnly?<div className="pcb-settings-section"><div className="pcb-settings-body">
+            <p className="pcb-help">{PCB_BOARD_IMPORT_NOTICE}</p>
+            <PcbColorPicker color={settings.maskColor} context="details" onChange={maskColor=>onChange({...settings,maskColor})}/>
+            <button type="button" disabled={!scene||busy} onClick={()=>void props.onDownload(props.displayMode==='3d'?'appearance':getPcbViews(settings).includes(view)?view:'appearance')}><Download size={15}/>下载当前视图</button>
+          </div></div>:<>
           <PcbModeSwitch mode={settings.processingMode} onChange={processingMode=>{props.onInteractionChange(false);onChange({...settings,processingMode});}}/>
           <label className="pcb-field">调整对象
             <select aria-label="调整对象" value={selected} onChange={event=>setSelected(event.target.value)}>
@@ -173,6 +180,7 @@ export function PcbAdjustModal(props:Props) {
             <button type="button" onClick={reset}><RotateCcw size={15}/>重置{layer?'这个素材':'全局参数'}</button>
             <button type="button" disabled={!scene||busy} onClick={()=>void props.onDownload(props.displayMode==='3d'?'appearance':getPcbViews(settings).includes(view)?view:'appearance')}><Download size={15}/>{props.displayMode==='3d'?'下载平面效果图':'下载当前视图'}</button>
           </div></details>
+          </>}
         </aside>
         <section className="pcb-adjust-preview">
           <div className="pcb-preview-toolbar">
@@ -185,10 +193,10 @@ export function PcbAdjustModal(props:Props) {
           </div>
           <div className={`pcb-adjust-board ${props.displayMode==='3d'?'pcb-adjust-board-3d':''}`}>
             {props.displayMode==='2d'?<PcbCanvas frames={frames} side={side} view={getPcbViews(settings).includes(view)?view:'appearance'} selection={layer} large/>:<Suspense fallback={<div className="pcb-3d-loading"><Loader2 className="animate-spin" size={18}/>正在建立 3D 模型…</div>}><PcbPreview3D frames={frames} scenes={scenes} side={side} faceRequest={props.faceRequest} widthMm={props.widthMm} thicknessMm={props.thicknessMm} onSizeChange={props.onSizeChange} onFallback={()=>props.onDisplayModeChange('2d')}/></Suspense>}
-            {busy&&<div className={`pcb-render-status ${frames[side]?'pcb-render-progress':''}`} role="status">{props.interacting?'调整中，松手后细化…':'正在更新 PCB 预览…'}</div>}
+            {busy&&<div className={`pcb-render-status ${frames[side]?'pcb-render-progress':''}`} role="status">正在更新高清 PCB 预览…</div>}
           </div>
           {props.error&&<p className="pcb-error" role="alert">{props.error}</p>}
-          <p className="pcb-help">{props.displayMode==='3d'?'修改左侧参数可同步查看 3D 效果。':'蓝色框标出当前素材范围。单层视图中，亮色区域表示有效图形；开窗表示去除阻焊。'}</p>
+          <p className="pcb-help">{props.boardOnly?'单层视图中，亮色区域表示有效图形；开窗表示去除阻焊。':props.displayMode==='3d'?'修改左侧参数可同步查看 3D 效果。':'蓝色框标出当前素材范围。单层视图中，亮色区域表示有效图形；开窗表示去除阻焊。'}</p>
         </section>
       </div>
     </div>

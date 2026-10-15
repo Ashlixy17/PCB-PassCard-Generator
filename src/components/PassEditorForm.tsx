@@ -8,7 +8,6 @@ import {
   Barcode,
   CheckSquare,
   Square,
-  Sparkles,
   Info,
 } from 'lucide-react';
 import { E1Options, FactionConfig, PassCardInfo, ProfessionKey } from '../types';
@@ -390,44 +389,7 @@ export const PassEditorForm: React.FC<PassEditorFormProps> = ({
             <label className="block text-xs text-slate-400 flex items-center gap-1">
               <Palette className="w-4 h-4 text-purple-400" /> PCB 配色与分层:
             </label>
-            <p className="text-xs text-slate-400 py-2">阻焊颜色可直接在右侧预览修改；细节、材质和线宽在“详细调整”中设置。</p>
-          </div>
-        </div>
-
-        {/* Elite Phase Toggle */}
-        <div className="pt-3 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-slate-200 font-bold">精英阶段:</span>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              精一: 包含底部底板与阵营水纹 | 精二: 铺满全画幅立绘
-            </p>
-          </div>
-          <div className="inline-flex bg-slate-950 p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={() => onInfoChange({ ...info, elite_phase: 'E1' })}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                (info.elite_phase || 'E1') === 'E1'
-                  ? 'bg-amber-500 text-slate-950 shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              精一
-            </button>
-            <button
-              type="button"
-              onClick={() => onInfoChange({ ...info, elite_phase: 'E2' })}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                info.elite_phase === 'E2'
-                  ? 'bg-amber-500 text-slate-950 shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              精二
-            </button>
+            <p className="text-xs text-slate-400 py-2">阻焊颜色可直接在右侧预览修改；底板等素材的显隐、细节、材质和线宽在“详细调整”中设置。</p>
           </div>
         </div>
       </div>
