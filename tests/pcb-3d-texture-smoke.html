@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>PCB 3D 贴图切换验证</title>
+<style>body{font:16px system-ui;background:#0d1117;color:#e6edf3;max-width:900px;margin:32px auto;padding:20px}button{padding:10px 18px;cursor:pointer}pre{white-space:pre-wrap;line-height:1.7;padding:20px;background:#151b23}</style>
+<h1>PCB 3D 贴图切换验证</h1>
+<p>反复切换高清与草稿，读取实际 GPU 输出，检查整幅替换、透明区域、贴图方向和显存复用。</p>
+<button id="run">运行验证</button>
+<pre id="results">等待运行</pre>
+<canvas id="preview"></canvas>
+<script type="module" src="./pcb-3d-texture-smoke.ts"></script>
+</html>

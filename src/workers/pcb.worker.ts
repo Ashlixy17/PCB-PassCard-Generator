@@ -1,8 +1,9 @@
-import {PcbSide, PcbView, PcbSettings, getPcbViews} from '../types/pcb';
-import {PcbExportImage, PcbFrame, PcbScenePatch, PcbSideFrames, PcbWorkerRequest, PcbWorkerResponse} from '../types/pcbWorker';
+import {PcbSide, PcbSettings, getPcbViews} from '../types/pcb';
+import {PcbExportImage, PcbFrame, PcbScenePatch, PcbSideFrames, PcbTextureView, PcbWorkerRequest, PcbWorkerResponse} from '../types/pcbWorker';
 import {PcbBoard, PcbScene, RasterPixels} from '../utils/pcbProcessing';
 import {PcbProcessingCache} from '../utils/pcbProcessingCache';
 import {createPcbRaster} from '../utils/pcbRaster';
+import {createPcbSurfaceMaps} from '../utils/pcb3dTextures';
 
 const scope = self as unknown as {
   onmessage: (event: MessageEvent<PcbWorkerRequest>) => void;
@@ -14,6 +15,7 @@ const sources = new Map<string, RasterPixels>();
 let cancelledUntil = 0;
 interface CachedImage {board: PcbBoard; color: string; raster: RasterPixels; canvas?: OffscreenCanvas}
 const images = new Map<string, CachedImage>();
+const surfaces = new WeakMap<PcbBoard,{finish:string;maps:ReturnType<typeof createPcbSurfaceMaps>}>();
 
 function applyScene(patch: PcbScenePatch): PcbScene {
   const boardMask = patch.boardMask || scenes.get(patch.side)?.boardMask;
@@ -30,12 +32,18 @@ function applyScene(patch: PcbScenePatch): PcbScene {
   return scene;
 }
 
-function imageFor(board: PcbBoard, settings: PcbSettings, view: PcbView | 'outline', quality: string, manufacturing = false): CachedImage {
+function imageFor(board: PcbBoard, settings: PcbSettings, view: PcbTextureView | 'outline', quality: string, manufacturing = false): CachedImage {
   const key = `${board.side}:${quality}:${view}:${manufacturing}`;
-  const paletteKey = view === 'appearance' ? `${settings.maskColor}:${settings.processingMode}:${settings.color.finish}` : '';
+  const finish=settings.processingMode==='color'?settings.color.finish:'enig';
+  const paletteKey = view === 'appearance' ? `${settings.maskColor}:${finish}` : view==='surface'?finish:'';
   const cached = images.get(key);
   if (cached?.board === board && cached.color === paletteKey) return cached;
-  const raster = createPcbRaster(board, settings, view, manufacturing);
+  let raster:RasterPixels;
+  if(view==='surface'||view==='height') {
+    let cached=surfaces.get(board);
+    if(!cached||cached.finish!==finish){cached={finish,maps:createPcbSurfaceMaps(board,finish)};surfaces.set(board,cached);}
+    raster=cached.maps[view];
+  } else raster=createPcbRaster(board, settings, view, manufacturing);
   let canvas: OffscreenCanvas | undefined;
   if (typeof OffscreenCanvas !== 'undefined') {
     canvas = cached?.canvas || new OffscreenCanvas(board.width, board.height);
@@ -78,7 +86,8 @@ async function process(request: Extract<PcbWorkerRequest, {type: 'process'}>) {
       if (request.id <= cancelledUntil) break;
       const board = processor.compose(source[side], request.settings, request.quality);
       const frames: PcbSideFrames = {};
-      for (const view of getPcbViews(request.settings)) frames[view] = await previewFrame(imageFor(board, request.settings, view, request.quality));
+      const views:PcbTextureView[]=[...getPcbViews(request.settings),...(request.include3d?['surface' as const,'height' as const]:[])];
+      for (const view of views) frames[view] = await previewFrame(imageFor(board, request.settings, view, request.quality));
       if (request.id <= cancelledUntil) {
         for (const frame of Object.values(frames)) frame.bitmap?.close();
         break;

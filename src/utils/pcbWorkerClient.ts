@@ -70,8 +70,8 @@ export class PcbWorkerClient {
   private execute(task: QueuedTask<PcbWorkerJob>): Promise<PcbExportImage[]> {
     return new Promise((resolve, reject) => {
       this.running = {task, resolve, reject};
-      const {settings, side, quality, plan} = task.payload;
-      this.worker.postMessage({type: 'process', id: task.id, kind: task.kind, scenes: this.patchScenes(task.payload.scenes), settings, side, quality, plan} satisfies PcbWorkerRequest);
+      const {settings, side, quality, plan, include3d} = task.payload;
+      this.worker.postMessage({type: 'process', id: task.id, kind: task.kind, scenes: this.patchScenes(task.payload.scenes), settings, side, quality, plan, include3d} satisfies PcbWorkerRequest);
     });
   }
 }

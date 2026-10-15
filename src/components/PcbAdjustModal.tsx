@@ -1,6 +1,6 @@
-import {useEffect,useRef,useState} from 'react';
+import {lazy,Suspense,useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-import {ArrowLeft,Download,RotateCcw,SlidersHorizontal} from 'lucide-react';
+import {ArrowLeft,Download,RotateCcw,SlidersHorizontal,Loader2} from 'lucide-react';
 import {E1Options} from '../types';
 import {PcbSettings,PcbLayerSettings,PcbSide,PcbView,PcbFinish,PCB_FINISH_LABELS,PCB_COLOR_DEFAULTS,PCB_BACK_LOGO_DEFAULTS,getPcbViews,getPcbViewLabel,getPcbModeLabel,getPcbParameters,patchPcbSettings,resetPcbParameters} from '../types/pcb';
 import {PcbScene,getPcbLayerSettings,pcbLayerKey} from '../utils/pcbProcessing';
@@ -16,7 +16,11 @@ interface Props {
   e1Opts:E1Options;onE1OptsChange:(value:E1Options)=>void;
   focusLayer?:string;busy:boolean;interacting:boolean;onInteractionChange:(active:boolean)=>void;
   onDownload:(view:PcbView)=>Promise<void>;error?:string;
+  displayMode:'2d'|'3d';onDisplayModeChange:(mode:'2d'|'3d')=>void;
+  faceRequest:number;widthMm:number;thicknessMm:number;onSizeChange:(width:number,thickness:number)=>void;
 }
+
+const PcbPreview3D=lazy(()=>import('./PcbPreview3D'));
 
 const processingFields=[
   {key:'silkThreshold',label:'丝印层阈值',min:0,max:255,step:1},
@@ -91,7 +95,7 @@ export function PcbAdjustModal(props:Props) {
     onKeyDown={event=>{
       if(event.key==='Escape')onClose();
       if(event.key==='Tab'){
-        const controls=(Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary')||[]) as HTMLElement[]).filter(item=>item.offsetParent!==null);
+        const controls=(Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,[tabindex="0"]')||[]) as HTMLElement[]).filter(item=>item.offsetParent!==null);
         const first=controls[0],last=controls[controls.length-1];
         if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
         if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
@@ -167,19 +171,24 @@ export function PcbAdjustModal(props:Props) {
           </details>}
           <details open className="pcb-settings-section"><summary>图纸操作</summary><div className="pcb-settings-body pcb-adjust-actions">
             <button type="button" onClick={reset}><RotateCcw size={15}/>重置{layer?'这个素材':'全局参数'}</button>
-            <button type="button" disabled={!scene||busy} onClick={()=>void props.onDownload(view)}><Download size={15}/>下载当前视图</button>
+            <button type="button" disabled={!scene||busy} onClick={()=>void props.onDownload(props.displayMode==='3d'?'appearance':getPcbViews(settings).includes(view)?view:'appearance')}><Download size={15}/>{props.displayMode==='3d'?'下载平面效果图':'下载当前视图'}</button>
           </div></details>
         </aside>
         <section className="pcb-adjust-preview">
           <div className="pcb-preview-toolbar">
             <span className="pcb-finish-label">{side==='back'?'独立背面 · 阵营 Logo':'正面通行证'}</span>
-            <label className="pcb-view-control">查看图层<select aria-label="查看图层" value={getPcbViews(settings).includes(view)?view:'appearance'} onChange={event=>setView(event.target.value as PcbView)}>{getPcbViews(settings).map(key=><option key={key} value={key}>{getPcbViewLabel(key,settings)}</option>)}</select></label>
+            <div className="mode-switch mode-switch-preview" role="group" aria-label="详细调整预览方式">
+              <button type="button" className={props.displayMode==='2d'?'active':''} aria-pressed={props.displayMode==='2d'} onClick={()=>props.onDisplayModeChange('2d')}>2D 平面</button>
+              <button type="button" className={props.displayMode==='3d'?'active':''} aria-pressed={props.displayMode==='3d'} onClick={()=>props.onDisplayModeChange('3d')}>3D 实物</button>
+            </div>
+            {props.displayMode==='2d'&&<label className="pcb-view-control">查看图层<select aria-label="查看图层" value={getPcbViews(settings).includes(view)?view:'appearance'} onChange={event=>setView(event.target.value as PcbView)}>{getPcbViews(settings).map(key=><option key={key} value={key}>{getPcbViewLabel(key,settings)}</option>)}</select></label>}
           </div>
-          <div className="pcb-adjust-board"><PcbCanvas frames={frames} side={side} view={getPcbViews(settings).includes(view)?view:'appearance'} selection={layer} large/>
+          <div className={`pcb-adjust-board ${props.displayMode==='3d'?'pcb-adjust-board-3d':''}`}>
+            {props.displayMode==='2d'?<PcbCanvas frames={frames} side={side} view={getPcbViews(settings).includes(view)?view:'appearance'} selection={layer} large/>:<Suspense fallback={<div className="pcb-3d-loading"><Loader2 className="animate-spin" size={18}/>正在建立 3D 模型…</div>}><PcbPreview3D frames={frames} scenes={scenes} side={side} faceRequest={props.faceRequest} widthMm={props.widthMm} thicknessMm={props.thicknessMm} onSizeChange={props.onSizeChange} onFallback={()=>props.onDisplayModeChange('2d')}/></Suspense>}
             {busy&&<div className={`pcb-render-status ${frames[side]?'pcb-render-progress':''}`} role="status">{props.interacting?'调整中，松手后细化…':'正在更新 PCB 预览…'}</div>}
           </div>
           {props.error&&<p className="pcb-error" role="alert">{props.error}</p>}
-          <p className="pcb-help">蓝色框标出当前素材范围。单层视图中，亮色区域表示有效图形；开窗表示去除阻焊。</p>
+          <p className="pcb-help">{props.displayMode==='3d'?'修改左侧参数可同步查看 3D 效果。':'蓝色框标出当前素材范围。单层视图中，亮色区域表示有效图形；开窗表示去除阻焊。'}</p>
         </section>
       </div>
     </div>

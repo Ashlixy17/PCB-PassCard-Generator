@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview --host=127.0.0.1 --open /PCB-PassCard-Generator.html",
     "lint": "tsc --noEmit",
-    "test:pcb": "node --import tsx --test src/utils/pcbProcessing.test.ts"
+    "test:pcb": "node --import tsx --test src/utils/pcbProcessing.test.ts src/utils/pcb3d.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

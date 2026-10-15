@@ -2,6 +2,7 @@ import {PCB_DEFAULTS, PcbSide, getPcbViews} from '../src/types/pcb';
 import {PcbScenes, PcbSideFrames} from '../src/types/pcbWorker';
 import {composePcbScene} from '../src/utils/pcbProcessing';
 import {createPcbRaster} from '../src/utils/pcbRaster';
+import {createPcbSurfaceMaps} from '../src/utils/pcb3dTextures';
 import {getPcbWorkerClient, closePcbFrames, pcbImageBlob} from '../src/utils/pcbWorkerClient';
 import {SupersededTaskError} from '../src/utils/latestTaskQueue';
 import {buildPcbScenes,PcbInputs} from '../src/utils/pcbRenderer';
@@ -74,12 +75,29 @@ button.addEventListener('click', async () => {
       check(actual.every((value, i) => value === expected[i]), `${file.side}/${file.view} changed the original layer output`);
     }
     report.exact_png_exports_verified = images.length;
+    let surfaceMaps=0;
+    const verifyMaps=(face:PcbSide,frames:PcbSideFrames,board:ReturnType<typeof composePcbScene>,finish:'enig'|'hasl'|'osp')=>{
+      const expected=createPcbSurfaceMaps(board,finish);
+      for(const kind of ['surface','height'] as const) {
+        const frame=frames[kind];check(!!frame,`Missing ${kind} map`);
+        const decoded=document.createElement('canvas');decoded.width=frame!.width;decoded.height=frame!.height;
+        const ctx=decoded.getContext('2d')!;
+        if(frame!.bitmap)ctx.drawImage(frame!.bitmap,0,0);else ctx.putImageData(new ImageData(frame!.pixels!,frame!.width,frame!.height),0,0);
+        const actual=ctx.getImageData(0,0,decoded.width,decoded.height).data;
+        check(actual.every((value,i)=>value===expected[kind].data[i]),`${face}/${finish}/${kind} altered linear material data`);
+        surfaceMaps++;
+      }
+    };
+    await client.preview({scenes,settings,side:'front',quality:'full',include3d:true,onSide:(face,frames)=>{
+      verifyMaps(face,frames,original[face],'enig');draw(face,frames);
+    }});
     let colorExports=0;
     for(const finish of ['enig','hasl','osp'] as const) {
       const colorSettings={...PCB_DEFAULTS,processingMode:'color' as const,color:{...PCB_DEFAULTS.color,finish,metalHue:finish==='osp'?15:45}};
       const expectedBoards={front:composePcbScene(scenes.front,colorSettings),back:composePcbScene(scenes.back,colorSettings)};
-      await client.preview({scenes,settings:colorSettings,side:'front',quality:'full',onSide:(face,frames)=>{
-        check(!!frames.metal && !!frames.coveredCopper && !!frames.substrate,'Color preview omitted process-specific layers');draw(face,frames);
+      await client.preview({scenes,settings:colorSettings,side:'front',quality:'full',include3d:true,onSide:(face,frames)=>{
+        check(!!frames.metal && !!frames.coveredCopper && !!frames.substrate,'Color preview omitted process-specific layers');
+        verifyMaps(face,frames,expectedBoards[face],finish);draw(face,frames);
       }});
       const files=await client.export({scenes,settings:colorSettings,side:'front',quality:'full',plan:{sides:['front','back'],views:getPcbViews(colorSettings),outline:true}});
       check(files.length===16,'Color export omitted material or manufacturing layers');
@@ -98,6 +116,7 @@ button.addEventListener('click', async () => {
       check(!frames.metal && Object.keys(frames).length===4,'Grayscale reused color-specific layers after switching back');draw(face,frames);
     }});
     report.exact_color_png_exports_verified=colorExports;
+    report.exact_3d_material_maps_verified=surfaceMaps;
     const inputs:PcbInputs={
       info:{chinese_name:'测试',english_name:'Test',english_name2:'',id:'R001',profession:'近卫',profession_en:'GUARD',barcode_text:'Test',show_icon:true,faction:'罗德岛',elite_phase:'E1'},
       e1Opts:{enabled:true,faction:'罗德岛',iconX:0,iconY:0,iconScale:1,gradientEnabled:false,frontColor:'#174d7c',gradColor:'#174d7c'},

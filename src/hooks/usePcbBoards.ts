@@ -6,7 +6,7 @@ import {getPcbWorkerClient, closePcbFrames} from '../utils/pcbWorkerClient';
 import {SupersededTaskError} from '../utils/latestTaskQueue';
 import {PcbQuality} from '../utils/pcbProcessingCache';
 
-export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: PcbSide, interacting: boolean) {
+export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: PcbSide, interacting: boolean, include3d=false) {
   const [scenes, setScenes] = useState<PcbScenes | null>(null);
   const [frames, setFrames] = useState<PcbFrames>({});
   const [sourceLoading, setSourceLoading] = useState(true);
@@ -59,7 +59,7 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
     const render = (quality: PcbQuality) => {
       try {
         client ||= getPcbWorkerClient();
-        void client.preview({scenes, settings, side: priority.current, quality, onSide: (face, update) => {
+        void client.preview({scenes, settings, side: priority.current, quality, include3d, onSide: (face, update) => {
           if (!active || version !== generation.current) { closePcbFrames(update); return; }
           for (const frame of Object.values(update)) ownedFrames.current.add(frame);
           setFrames(previous => ({...previous, [face]: update}));
@@ -88,7 +88,7 @@ export function usePcbBoards(inputs: PcbInputs, settings: PcbSettings, side: Pcb
       client?.cancelPreview();
     };
     // Side changes select cached canvases without scheduling pixel work.
-  }, [scenes, sourceLoading, settings, interacting]);
+  }, [scenes, sourceLoading, settings, interacting, include3d]);
 
   return {scenes, frames, busy: sourceLoading || processing || interacting, error};
 }
